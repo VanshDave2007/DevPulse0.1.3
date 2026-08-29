@@ -423,43 +423,75 @@ export class ProjectMemoryService {
 
   /**
    * Retrieves contextually relevant memories for AI queries or finding evaluations
+   * based on the file, module, symbol, category, or query currently being analyzed.
    */
   public static getRelevantMemory(context: {
     file?: string;
+    module?: string;
     symbol?: string;
     findingType?: string;
     category?: string;
     query?: string;
+    code?: string;
     scope?: ProjectMemoryScope;
   }): ProjectMemory[] {
     const memories = this.getProjectMemory().filter(
       (m) => m.status === 'ACTIVE' || m.status === 'APPROVED' || m.status === 'CONFIRMED'
     );
 
+    // Extract module name from file if not explicitly passed
+    const activeModule = context.module || (context.file ? this.extractModuleName(context.file) : undefined);
+
     const ranked = memories.map((m) => {
       let score = 0;
 
       // 1. Scope and Target Matching
       if (m.scope === 'PROJECT') {
-        score += 15;
+        score += 25; // Base weight for global approved project rules
       }
 
       if (context.file && m.relatedFiles && m.relatedFiles.length > 0) {
         const fBase = context.file.split('/').pop()?.toLowerCase() || '';
-        const match = m.relatedFiles.some((rf) => rf.toLowerCase().includes(fBase) || fBase.includes(rf.toLowerCase()));
-        if (match) score += 40;
+        const fNameWithoutExt = fBase.replace(/\.[^/.]+$/, '');
+        const match = m.relatedFiles.some((rf) => {
+          const rfLower = rf.toLowerCase();
+          const rfBase = rfLower.split('/').pop()?.replace(/\.[^/.]+$/, '') || '';
+          return (
+            rfLower.includes(fBase) ||
+            fBase.includes(rfLower) ||
+            (fNameWithoutExt && rfBase.includes(fNameWithoutExt)) ||
+            (fNameWithoutExt && fNameWithoutExt.includes(rfBase))
+          );
+        });
+        if (match) score += 45;
+      }
+
+      // Module-level matching
+      if (activeModule && (m.scope === 'MODULE' || m.affectedComponents || m.tags || m.relatedFiles)) {
+        const modLower = activeModule.toLowerCase();
+        const inComponents = (m.affectedComponents || []).some((c) => c.toLowerCase().includes(modLower) || modLower.includes(c.toLowerCase()));
+        const inTags = (m.tags || []).some((t) => t.toLowerCase() === modLower || modLower.includes(t.toLowerCase()));
+        const inFiles = (m.relatedFiles || []).some((f) => f.toLowerCase().includes(modLower));
+        if (inComponents || inTags || inFiles) score += 40;
       }
 
       if (context.symbol && m.relatedSymbols && m.relatedSymbols.length > 0) {
         const sLower = context.symbol.toLowerCase();
-        const match = m.relatedSymbols.some((rs) => rs.toLowerCase() === sLower || sLower.includes(rs.toLowerCase()));
-        if (match) score += 45;
+        const match = m.relatedSymbols.some((rs) => rs.toLowerCase() === sLower || sLower.includes(rs.toLowerCase()) || rs.toLowerCase().includes(sLower));
+        if (match) score += 50;
+      }
+
+      // Check code content if provided
+      if (context.code && m.relatedSymbols && m.relatedSymbols.length > 0) {
+        const codeContainsSymbol = m.relatedSymbols.some((s) => context.code!.includes(s));
+        if (codeContainsSymbol) score += 30;
       }
 
       // 2. Category & Tag Matching
       if (context.category && m.tags) {
-        if (m.tags.some((t) => t.toLowerCase() === context.category?.toLowerCase())) {
-          score += 25;
+        const catLower = context.category.toLowerCase();
+        if (m.tags.some((t) => t.toLowerCase() === catLower || catLower.includes(t.toLowerCase()))) {
+          score += 30;
         }
       }
 
@@ -467,13 +499,16 @@ export class ProjectMemoryService {
       if (context.query) {
         const qTerms = context.query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
         qTerms.forEach((term) => {
-          if (m.title.toLowerCase().includes(term)) score += 20;
-          if (m.content.toLowerCase().includes(term)) score += 15;
-          if ((m.tags || []).some((t) => t.toLowerCase().includes(term))) score += 15;
+          if (m.title.toLowerCase().includes(term)) score += 25;
+          if (m.content.toLowerCase().includes(term)) score += 20;
+          if ((m.tags || []).some((t) => t.toLowerCase().includes(term))) score += 20;
+          if ((m.decision || '').toLowerCase().includes(term)) score += 20;
+          if ((m.reason || '').toLowerCase().includes(term)) score += 15;
         });
       }
 
-      // 4. Source & Confidence Weight
+      // 4. Source & Type Priority
+      if (m.type === 'PROJECT_RULE' || m.type === 'ARCHITECTURE_DECISION') score += 20;
       if (m.isExplicit || m.source === 'USER_CREATED' || m.source === 'DEVELOPER_FEEDBACK') score += 20;
       if (m.status === 'APPROVED') score += 15;
 
@@ -483,8 +518,27 @@ export class ProjectMemoryService {
     return ranked
       .filter((item) => item.score > 20)
       .sort((a, b) => b.score - a.score)
-      .slice(0, 6)
+      .slice(0, 8)
       .map((item) => item.memory);
+  }
+
+  /**
+   * Helper to derive module/domain name from file path
+   */
+  public static extractModuleName(filePath: string): string {
+    if (!filePath) return 'general';
+    const parts = filePath.replace(/\\/g, '/').split('/');
+    if (parts.length > 1) {
+      // e.g. src/auth/authService.ts -> 'auth'
+      const folder = parts[parts.length - 2];
+      if (folder !== 'src' && folder !== 'lib' && folder !== 'components' && folder !== 'services') {
+        return folder;
+      }
+    }
+    // Try filename prefix (e.g. authService.ts -> 'auth', billingAdapter.ts -> 'billing')
+    const fileName = parts[parts.length - 1].replace(/\.[^/.]+$/, '');
+    const matched = fileName.match(/^([a-z]+)/i);
+    return matched ? matched[1].toLowerCase() : fileName.toLowerCase();
   }
 
   // ----------------------------------------------------
@@ -740,23 +794,68 @@ export class ProjectMemoryService {
     const approved = relevantMemories.filter((m) => m.status === 'APPROVED' || m.status === 'ACTIVE' || m.status === 'CONFIRMED');
     const inferred = relevantMemories.filter((m) => m.status === 'PROPOSED' || m.status === 'SUGGESTED');
 
-    let text = '\n### 🧠 Approved Project Intelligence & Context (Known Facts)\n';
+    if (approved.length === 0 && inferred.length === 0) return '';
+
+    let text = '\n### 🧠 Approved Project Rules & Architectural Context\n';
+    text += 'The following approved project memory items and architectural constraints apply directly to the analyzed file/module:\n\n';
 
     if (approved.length > 0) {
-      approved.forEach((m) => {
-        text += `- **[${m.type}] ${m.title}** (${m.scope} scope)\n  ${m.content}\n`;
-        if (m.decision) text += `  *Decision:* ${m.decision}\n`;
-        if (m.reason) text += `  *Reason:* ${m.reason}\n`;
-      });
-    } else {
-      text += '*(No explicit approved project rules for this specific scope)*\n';
+      // Group by category for high clarity
+      const rulesAndDecisions = approved.filter((m) => m.type === 'PROJECT_RULE' || m.type === 'ARCHITECTURE_DECISION');
+      const debtAndRisks = approved.filter((m) => m.type === 'ACCEPTED_TECHNICAL_DEBT');
+      const falsePositives = approved.filter((m) => m.type === 'FALSE_POSITIVE');
+      const conventions = approved.filter((m) => m.type === 'CODING_CONVENTION' || m.type === 'TESTING_CONVENTION');
+      const others = approved.filter((m) => !rulesAndDecisions.includes(m) && !debtAndRisks.includes(m) && !falsePositives.includes(m) && !conventions.includes(m));
+
+      if (rulesAndDecisions.length > 0) {
+        text += '**Enforced Architecture Decisions & Rules:**\n';
+        rulesAndDecisions.forEach((m) => {
+          text += `- **[${m.type.replace('_', ' ')}] ${m.title}** (${m.scope} scope)\n  ${m.content}\n`;
+          if (m.decision) text += `  *Architecture Mandate:* ${m.decision}\n`;
+          if (m.rationale) text += `  *Rationale:* ${m.rationale}\n`;
+        });
+        text += '\n';
+      }
+
+      if (debtAndRisks.length > 0) {
+        text += '**Accepted Technical Debt & Deferred Refactorings:**\n';
+        debtAndRisks.forEach((m) => {
+          text += `- **${m.title}** (${m.scope} scope)\n  ${m.content}\n`;
+          if (m.developerExplanation) text += `  *Developer Note:* ${m.developerExplanation}\n`;
+        });
+        text += '\n';
+      }
+
+      if (falsePositives.length > 0) {
+        text += '**Calibrated False Positives (Do not re-flag):**\n';
+        falsePositives.forEach((m) => {
+          text += `- **${m.title}**: ${m.content} (Reason: ${m.reason || 'Analyzer calibration'})\n`;
+        });
+        text += '\n';
+      }
+
+      if (conventions.length > 0) {
+        text += '**Approved Conventions:**\n';
+        conventions.forEach((m) => {
+          text += `- **${m.title}**: ${m.content}\n`;
+        });
+        text += '\n';
+      }
+
+      if (others.length > 0) {
+        others.forEach((m) => {
+          text += `- **[${m.type}] ${m.title}**: ${m.content}\n`;
+        });
+        text += '\n';
+      }
     }
 
     if (inferred.length > 0) {
-      text += '\n### 💡 Inferred / Suggested Patterns (Unapproved Context)\n';
+      text += '**Suggested / Proposed Conventions (Unapproved):**\n';
       inferred.forEach((m) => {
-        text += `- *[Suggested ${m.type}] ${m.title}*: ${m.content}\n`;
+        text += `- *[Proposed ${m.type}] ${m.title}*: ${m.content}\n`;
       });
+      text += '\n';
     }
 
     return text;

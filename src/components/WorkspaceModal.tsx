@@ -44,8 +44,6 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({ isOpen, onClose 
   const [reviewMeetingTitle, setReviewMeetingTitle] = useState(`DevPulse Architecture Review (${language.toUpperCase()})`);
   const [gmailRecipient, setGmailRecipient] = useState('');
 
-  if (!isOpen) return null;
-
   const handleConnectAndExecute = async () => {
     setLoading(true);
     setError(null);
@@ -147,6 +145,8 @@ ${analysis?.smells.map((s, idx) => `${idx + 1}. [${s.severity.toUpperCase()}] Li
     { id: 'calendar', label: 'Google Calendar', icon: Calendar, desc: 'Schedule code review event' },
     { id: 'gmail', label: 'Gmail', icon: Mail, desc: 'Draft code audit email' },
   ] as const;
+
+  if (!isOpen) return null;
 
   return (
     <div

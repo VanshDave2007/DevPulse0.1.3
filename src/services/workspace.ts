@@ -62,16 +62,22 @@ export function getStoredGoogleToken(): string | null {
   return sessionStorage.getItem('devpulse_g_token');
 }
 
+export function hasGoogleWorkspaceAccess(): boolean {
+  return !!getStoredGoogleToken();
+}
+
 export function clearGoogleToken(): void {
   currentAccessToken = null;
   sessionStorage.removeItem('devpulse_g_token');
 }
 
+export const clearStoredGoogleToken = clearGoogleToken;
+
 // 1. Google Drive: Upload Analysis Report
 export async function uploadReportToDrive(
   token: string,
   fileName: string,
-  content: string,
+  content: string | Blob,
   mimeType = 'text/markdown'
 ): Promise<{ id: string; name: string; webViewLink?: string }> {
   const metadata = {
@@ -82,7 +88,12 @@ export async function uploadReportToDrive(
 
   const form = new FormData();
   form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-  form.append('file', new Blob([content], { type: mimeType }));
+  
+  if (typeof content === 'string') {
+    form.append('file', new Blob([content], { type: mimeType }));
+  } else {
+    form.append('file', content);
+  }
 
   const response = await fetch(
     'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink',
@@ -101,6 +112,119 @@ export async function uploadReportToDrive(
   }
 
   return await response.json();
+}
+
+/**
+ * GitHub Integration: Sync Report to GitHub Gist or Repository
+ */
+export async function syncReportToGitHubGist(
+  fileName: string,
+  content: string,
+  description: string,
+  githubToken?: string,
+  isPublic = false
+): Promise<{ id: string; htmlUrl: string; rawUrl?: string }> {
+  const safeFileName = fileName.endsWith('.md') ? fileName : `${fileName}.md`;
+  const payload = {
+    description: description || `DevPulse Code Intelligence Report - ${new Date().toLocaleDateString()}`,
+    public: isPublic,
+    files: {
+      [safeFileName]: {
+        content: content,
+      },
+    },
+  };
+
+  const headers: Record<string, string> = {
+    'Accept': 'application/vnd.github+json',
+    'Content-Type': 'application/json',
+  };
+
+  if (githubToken && githubToken.trim().length > 0) {
+    headers['Authorization'] = `Bearer ${githubToken.trim()}`;
+  }
+
+  const response = await fetch('https://api.github.com/gists', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`GitHub Gist sync failed (${response.status}): ${errText}`);
+  }
+
+  const data = await response.json();
+  return {
+    id: data.id,
+    htmlUrl: data.html_url,
+    rawUrl: data.files?.[safeFileName]?.raw_url,
+  };
+}
+
+/**
+ * GitHub Integration: Commit Report into a Repository (.github/reports/...)
+ */
+export async function syncReportToGitHubRepo(
+  owner: string,
+  repo: string,
+  filePath: string,
+  content: string,
+  commitMessage: string,
+  githubToken: string,
+  branch = 'main'
+): Promise<{ commitUrl: string; fileUrl: string }> {
+  const encodedPath = encodeURIComponent(filePath).replace(/%2F/g, '/');
+  const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}`;
+
+  const headers: Record<string, string> = {
+    'Accept': 'application/vnd.github+json',
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${githubToken.trim()}`,
+  };
+
+  // Check if file already exists to get SHA for update
+  let existingSha: string | undefined;
+  try {
+    const checkRes = await fetch(`${apiUrl}?ref=${branch}`, { headers });
+    if (checkRes.ok) {
+      const fileData = await checkRes.json();
+      existingSha = fileData.sha;
+    }
+  } catch (e) {
+    // File does not exist yet
+  }
+
+  // Base64 encode content (Unicode safe)
+  const base64Content = btoa(unescape(encodeURIComponent(content)));
+
+  const payload: any = {
+    message: commitMessage || `docs(audit): add DevPulse code intelligence report [skip ci]`,
+    content: base64Content,
+    branch,
+  };
+
+  if (existingSha) {
+    payload.sha = existingSha;
+  }
+
+  const putRes = await fetch(apiUrl, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify(payload),
+  });
+
+  if (!putRes.ok) {
+    const errText = await putRes.text();
+    throw new Error(`GitHub repository push failed (${putRes.status}): ${errText}`);
+  }
+
+  const result = await putRes.json();
+  return {
+    commitUrl: result.commit?.html_url || `https://github.com/${owner}/${repo}/commit/${result.commit?.sha}`,
+    fileUrl: result.content?.html_url || `https://github.com/${owner}/${repo}/blob/${branch}/${filePath}`,
+  };
 }
 
 // 2. Google Docs: Create Structured Document

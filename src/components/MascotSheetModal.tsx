@@ -45,8 +45,6 @@ export const MascotSheetModal: React.FC<MascotSheetModalProps> = ({
   const [selectedPose, setSelectedPose] = useState<MascotPose>('hero');
   const [copiedPose, setCopiedPose] = useState<string | null>(null);
 
-  if (!isOpen) return null;
-
   const handleCopySvg = (poseId: MascotPose) => {
     // Generate standalone SVG string
     const svgEl = document.getElementById(`mascot-preview-${poseId}`);
@@ -57,6 +55,8 @@ export const MascotSheetModal: React.FC<MascotSheetModalProps> = ({
       setTimeout(() => setCopiedPose(null), 2000);
     }
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden flex items-center justify-center p-4 sm:p-6 select-none animate-fadeIn">

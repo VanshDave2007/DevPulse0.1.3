@@ -89,8 +89,6 @@ export const QuestionnaireModal: React.FC<QuestionnaireModalProps> = ({
     architecture_score: personalizationProfile.questionnaire?.architecture_score || 3,
   });
 
-  if (!isOpen) return null;
-
   const { scores, dimensions } = classifyQuestionnaire(answers);
   const totalScore = scores.total_score;
   const recommendedLevel: KnowledgeLevel = scores.recommended_level;
@@ -132,6 +130,8 @@ export const QuestionnaireModal: React.FC<QuestionnaireModalProps> = ({
         return 'bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/30';
     }
   };
+
+  if (!isOpen) return null;
 
   return (
     <div

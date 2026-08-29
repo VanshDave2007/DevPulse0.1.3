@@ -1798,3 +1798,17 @@ export interface HeatmapOverviewStats {
   averageRisk: number;
   totalTestGaps: number;
 }
+
+// ----------------------------------------------------
+// TOAST NOTIFICATION SYSTEM
+// ----------------------------------------------------
+export type ToastType = 'success' | 'info' | 'warning' | 'error';
+
+export interface ToastNotification {
+  id: string;
+  title: string;
+  description?: string;
+  type?: ToastType;
+  duration?: number;
+}
+

@@ -20,6 +20,7 @@ import {
 import { ChangeImpactService } from './changeImpactService';
 import { EvidenceGraphService, redactSecrets } from './evidenceGraphService';
 import { FindingPriorityEngine } from './findingPriorityEngine';
+import { ProjectMemoryService } from './projectMemoryService';
 import { QueryIntentEngine } from './queryIntentEngine';
 import { RootCauseEngine } from './rootCauseEngine';
 import { SymbolResolutionService } from './symbolResolutionService';
@@ -682,6 +683,33 @@ export class RepositoryIntelligenceService {
           'Explain the architecture of this file',
         ];
         break;
+      }
+    }
+
+    // 5. Contextualize with relevant Project Memory & Approved Rules
+    const relevantMemories = ProjectMemoryService.getRelevantMemory({
+      file: targetFile,
+      module: ProjectMemoryService.extractModuleName(targetFile),
+      symbol: targetSymbol,
+      query,
+      code,
+    });
+
+    if (relevantMemories.length > 0) {
+      const topApproved = relevantMemories
+        .filter((m) => m.status === 'APPROVED' || m.status === 'CONFIRMED' || m.status === 'ACTIVE')
+        .slice(0, 3);
+
+      if (topApproved.length > 0) {
+        const rulesFormatted = topApproved
+          .map((m) => `- **[${m.type.replace(/_/g, ' ')}] ${m.title}** (${m.scope}): ${m.content}${m.decision ? ` *(Mandate: ${m.decision})*` : ''}`)
+          .join('\n');
+        
+        groundedAnswer += `\n\n---\n**🧠 Relevant Project Memory & Approved Rules:**\n${rulesFormatted}`;
+        
+        topApproved.forEach((m) => {
+          evidenceList.push(`Project Rule: [${m.type}] ${m.title}`);
+        });
       }
     }
 

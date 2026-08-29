@@ -161,8 +161,6 @@ export const ProjectMemoryModal: React.FC<ProjectMemoryModalProps> = ({
     return ProjectMemoryService.findDuplicateOrSimilar(formTitle, formContent);
   }, [formTitle, formContent]);
 
-  if (!isOpen) return null;
-
   const handleOpenAddModal = (existing?: ProjectMemory) => {
     if (existing) {
       setEditingMemory(existing);
@@ -276,6 +274,8 @@ export const ProjectMemoryModal: React.FC<ProjectMemoryModalProps> = ({
     setCopiedContext(true);
     setTimeout(() => setCopiedContext(false), 2000);
   };
+
+  if (!isOpen) return null;
 
   return (
     <div

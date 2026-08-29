@@ -52,8 +52,6 @@ export const SettingsModal: React.FC = () => {
   const [showPurgeConfirm, setShowPurgeConfirm] = useState<boolean>(false);
   const [isMemoryModalOpen, setIsMemoryModalOpen] = useState<boolean>(false);
 
-  if (!isSettingsOpen) return null;
-
   const handleLevelChange = (level: KnowledgeLevel) => {
     updatePersonalizationProfile({
       knowledge_level: level,
@@ -111,6 +109,8 @@ export const SettingsModal: React.FC = () => {
       setPurgeLoading(false);
     }
   };
+
+  if (!isSettingsOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">

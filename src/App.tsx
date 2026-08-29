@@ -30,6 +30,7 @@ import { QuestionnaireModal } from './components/QuestionnaireModal';
 import { MascotSheetModal } from './components/MascotSheetModal';
 import { CheatSheetModal } from './components/CheatSheetModal';
 import { FocusModeBar } from './components/FocusModeBar';
+import { ToastContainer } from './components/Toast';
 
 const MainLayout: React.FC = () => {
   const {
@@ -55,6 +56,8 @@ const MainLayout: React.FC = () => {
     isSettingsOpen,
     isCommandMenuOpen,
     isOnboardingOpen,
+    toasts,
+    removeToast,
   } = useApp();
 
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -251,6 +254,9 @@ const MainLayout: React.FC = () => {
         isOpen={isCheatSheetOpen}
         onClose={() => setIsCheatSheetOpen(false)}
       />
+
+      {/* Global Toast Notification System */}
+      <ToastContainer toasts={toasts} onDismiss={removeToast} />
     </div>
   );
 };

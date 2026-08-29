@@ -12,6 +12,7 @@ import {
   SupportedLanguage,
 } from '../types';
 import { buildPersonalizedAiContext } from '../engine/personalization';
+import { ProjectMemoryService } from '../services/projectMemoryService';
 import { logApiMetric } from '../services/telemetry';
 
 export interface UsePulseAiOptions {
@@ -26,6 +27,8 @@ export interface SendAiRequestOptions {
   question?: string;
   code?: string;
   language?: SupportedLanguage;
+  file?: string;
+  module?: string;
   smell?: CodeSmell;
   metricType?: string;
   dimension?: any;
@@ -35,6 +38,7 @@ export function usePulseAI(options: UsePulseAiOptions = {}) {
   const {
     code: globalCode,
     language: globalLanguage,
+    fileName: globalFileName,
     analysis,
     aiMessages,
     setAiMessages,
@@ -81,8 +85,22 @@ export function usePulseAI(options: UsePulseAiOptions = {}) {
 
       const activeCode = requestOptions.code !== undefined ? requestOptions.code : globalCode;
       const activeLanguage = requestOptions.language !== undefined ? requestOptions.language : globalLanguage;
+      const activeFile = requestOptions.file || globalFileName || 'active_file';
+      const activeModule = requestOptions.module || ProjectMemoryService.extractModuleName(activeFile);
       const activeAction = requestOptions.action;
       const userPrompt = requestOptions.question || `Analyze ${activeAction} for current code.`;
+
+      // Fetch relevant Project Memory items based on the file or module currently being analyzed
+      const activeSymbol = (requestOptions.smell as any)?.symbol || requestOptions.smell?.title;
+      const relevantMemories = ProjectMemoryService.getRelevantMemory({
+        file: activeFile,
+        module: activeModule,
+        symbol: activeSymbol,
+        category: typeof activeAction === 'string' ? activeAction : undefined,
+        query: userPrompt,
+        code: activeCode,
+      });
+      const formattedProjectRules = ProjectMemoryService.formatContextForAI(relevantMemories);
 
       // Build personalized context
       const personalizedContext = buildPersonalizedAiContext(personalizationProfile, {
@@ -116,6 +134,9 @@ export function usePulseAI(options: UsePulseAiOptions = {}) {
         action: activeAction,
         code: activeCode,
         language: activeLanguage,
+        file: activeFile,
+        fileName: activeFile,
+        module: activeModule,
         metrics: analysis?.metrics,
         issues: analysis?.smells,
         question: userPrompt,
@@ -127,6 +148,8 @@ export function usePulseAI(options: UsePulseAiOptions = {}) {
           preferences: personalizationProfile.preferences,
           skillDimensions: personalizationProfile.skill_dimensions,
         },
+        projectMemory: relevantMemories,
+        formattedProjectRules,
         history: historyPayload,
       };
 
@@ -304,6 +327,7 @@ export function usePulseAI(options: UsePulseAiOptions = {}) {
     [
       globalCode,
       globalLanguage,
+      globalFileName,
       analysis,
       aiMessages,
       personalizationProfile,

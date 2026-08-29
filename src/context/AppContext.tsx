@@ -13,6 +13,7 @@ import {
   PresetProject,
   SupportedLanguage,
   ThemeMode,
+  ToastNotification,
   UserPersonalizationProfile,
 } from '../types';
 import {
@@ -40,6 +41,7 @@ import { telemetry } from '../services/telemetry';
 import { sessionTracker } from '../services/sessionTracker';
 import { RepositoryIntelligenceService } from '../services/repositoryIntelligenceService';
 import { EvidenceGraphService } from '../services/evidenceGraphService';
+import { ProjectMemoryService } from '../services/projectMemoryService';
 import { normalizeCodeSmells } from '../engine/actionCenter';
 
 export type NavTab =
@@ -151,6 +153,11 @@ interface AppContextType {
   setIsFocusMode: React.Dispatch<React.SetStateAction<boolean>>;
   toggleFocusMode: () => void;
 
+  // Toast Notification System
+  toasts: ToastNotification[];
+  addToast: (toast: Omit<ToastNotification, 'id'> | string) => void;
+  removeToast: (id: string) => void;
+
   // Ask Your Codebase Intelligence
   askCodebase: (query: string, customContext?: Partial<CodebaseQueryContext>) => Promise<AskResult>;
   lastAskResult: AskResult | null;
@@ -235,6 +242,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const toggleFocusMode = () => {
     setIsFocusMode((prev) => !prev);
+  };
+
+  // Toast Notification System
+  const [toasts, setToasts] = useState<ToastNotification[]>([]);
+
+  const addToast = (toast: Omit<ToastNotification, 'id'> | string) => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const newToast: ToastNotification =
+      typeof toast === 'string'
+        ? { id, title: toast, type: 'info' }
+        : { ...toast, id };
+
+    setToasts((prev) => [...prev.slice(-4), newToast]);
+  };
+
+  const removeToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
   // Ask Your Codebase Intelligence state
@@ -737,10 +761,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         language: activeTargetLang,
       });
 
+      const activeFile = (overrides as any)?.file || (overrides as any)?.fileName || fileName || 'active_file';
+      const activeModule = (overrides as any)?.module || ProjectMemoryService.extractModuleName(activeFile);
+      const relevantMemories = ProjectMemoryService.getRelevantMemory({
+        file: activeFile,
+        module: activeModule,
+        category: action,
+        query: question,
+        code: activeTargetCode,
+      });
+      const formattedProjectRules = ProjectMemoryService.formatContextForAI(relevantMemories);
+
       const payload = {
         action,
         code: activeTargetCode,
         language: activeTargetLang,
+        file: activeFile,
+        fileName: activeFile,
+        module: activeModule,
         metrics: analysis?.metrics,
         issues: analysis?.smells,
         question,
@@ -752,6 +790,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           preferences: personalizationProfile.preferences,
           skillDimensions: personalizationProfile.skill_dimensions,
         },
+        projectMemory: relevantMemories,
+        formattedProjectRules,
         history: historyPayload,
       };
 
@@ -1085,6 +1125,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isFocusMode,
         setIsFocusMode,
         toggleFocusMode,
+
+        toasts,
+        addToast,
+        removeToast,
       }}
     >
       {children}

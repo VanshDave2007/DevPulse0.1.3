@@ -121,6 +121,9 @@ function buildAiPromptContext(body: any) {
     action = "chat",
     code = "",
     language = "python",
+    file = "",
+    fileName = "",
+    module = "",
     metrics,
     issues = [],
     question = "",
@@ -131,7 +134,38 @@ function buildAiPromptContext(body: any) {
     explanationDepth,
     ExplanationDepth,
     personalization,
+    projectMemory = [],
+    formattedProjectRules = "",
+    relevantMemories = [],
+    projectRules = [],
   } = body;
+
+  const targetFile = file || fileName || "";
+  const targetModule = module || "";
+
+  // Combine and format approved project memory & rules
+  const allMemories = [
+    ...(Array.isArray(projectMemory) ? projectMemory : []),
+    ...(Array.isArray(relevantMemories) ? relevantMemories : []),
+    ...(Array.isArray(projectRules) ? projectRules : []),
+  ];
+
+  let rulesContext = formattedProjectRules || "";
+  if (!rulesContext && allMemories.length > 0) {
+    const approved = allMemories.filter(
+      (m: any) => m.status === "APPROVED" || m.status === "ACTIVE" || m.status === "CONFIRMED"
+    );
+    if (approved.length > 0) {
+      rulesContext =
+        "\n### 🧠 Approved Project Rules & Architectural Context:\n" +
+        approved
+          .map(
+            (m: any) =>
+              `- **[${(m.type || "PROJECT_RULE").replace(/_/g, " ")}] ${m.title}** (${m.scope || "PROJECT"} scope):\n  ${m.content}${m.decision ? `\n  *Architecture Mandate:* ${m.decision}` : ""}${m.rationale ? `\n  *Rationale:* ${m.rationale}` : ""}`
+          )
+          .join("\n");
+    }
+  }
 
   // Normalize developer knowledge level from all potential naming formats
   let rawLevel =
@@ -244,6 +278,12 @@ function buildAiPromptContext(body: any) {
 
   const systemInstruction = `You are DevPulse AI, a friendly, patient, and highly knowledgeable programming mentor and developer intelligence companion ("See the Code. Find the Pulse.").
 
+GROUNDING IN APPROVED PROJECT RULES & REPOSITORY MEMORY:
+1. Contextualize every code analysis, refactoring advice, or diagnostic answer with the approved Project Memory rules, architecture decisions, and coding conventions documented for this file/module.
+2. Never recommend fixes or patterns that violate established project decisions (e.g. bypassing repository pattern, violating auth token standards, or ignoring accepted technical debt).
+3. If an accepted technical debt item or calibrated false positive is documented for this code, acknowledge it rather than treating it as an active critical blocker.
+${rulesContext ? `\n${rulesContext}\n` : ""}
+
 CORE TEACHING PHILOSOPHY & MENTORSHIP:
 1. Patient Mentor Mindset:
    - Act as a patient, encouraging coding teacher. Treat every question as a legitimate new request, even if rephrased. Never say "I already explained that."
@@ -278,12 +318,12 @@ CORE TEACHING PHILOSOPHY & MENTORSHIP:
 
   // Context summary
   const topIssues = Array.isArray(issues) ? issues.slice(0, 6) : [];
-  const contextSummary = (trimmedCode || metrics)
+  const contextSummary = (trimmedCode || metrics || targetFile || rulesContext)
     ? `\nActive Codebase Summary (Deterministic Analyzer Results):
-Language: ${language} | LOC: ${metrics?.loc || (trimmedCode ? trimmedCode.split('\n').length : 0)}
+${targetFile ? `Target File: ${targetFile}${targetModule ? ` (Module: ${targetModule})` : ''}\n` : ''}Language: ${language} | LOC: ${metrics?.loc || (trimmedCode ? trimmedCode.split('\n').length : 0)}
 Cyclomatic Complexity: ${metrics?.cyclomaticComplexity ?? 'N/A'} | Cognitive Complexity: ${metrics?.cognitiveComplexity ?? 'N/A'} | Maintainability Index: ${metrics?.maintainabilityScore ?? 'N/A'}/100 | Health: ${metrics?.healthScore ?? 'N/A'}/100
 Active Diagnostic Smells: ${topIssues.map((i: any) => `[${(i.severity || 'warn').toUpperCase()}] Line ${i.line}: ${i.title} (${i.description})`).join("; ") || "Clean - No active smells"}
-`
+${rulesContext ? `${rulesContext}\n` : ""}`
     : "";
 
   let userPrompt = "";
@@ -675,9 +715,35 @@ Guidelines for this response:
 }
 
 function generateEducationalOrDiagnosticFallback(body: any): string {
-  const { action = "chat", language = "python", question = "", code = "" } = body;
+  const {
+    action = "chat",
+    language = "python",
+    question = "",
+    code = "",
+    formattedProjectRules = "",
+    projectMemory = [],
+    relevantMemories = [],
+  } = body;
   const langName = language.charAt(0).toUpperCase() + language.slice(1);
   const userQuery = (question || "").replace(/\[.*?\]\s*/g, "").trim();
+
+  const rulesList = [
+    ...(Array.isArray(projectMemory) ? projectMemory : []),
+    ...(Array.isArray(relevantMemories) ? relevantMemories : []),
+  ].filter((m: any) => m.status === "APPROVED" || m.status === "ACTIVE" || m.status === "CONFIRMED");
+
+  const rulesSection = formattedProjectRules
+    ? `\n\n---\n${formattedProjectRules}`
+    : rulesList.length > 0
+    ? `\n\n---\n### 🧠 Approved Project Rules & Context\n` +
+      rulesList
+        .slice(0, 3)
+        .map(
+          (m: any) =>
+            `- **[${(m.type || "PROJECT_RULE").replace(/_/g, " ")}] ${m.title}** (${m.scope || "PROJECT"}): ${m.content}${m.decision ? ` *(Mandate: ${m.decision})*` : ""}`
+        )
+        .join("\n")
+    : "";
 
   if (action === "learn" || userQuery.toLowerCase().includes("learn") || userQuery.toLowerCase().includes("how") || userQuery.toLowerCase().includes("explain")) {
     return `# DevPulse AI Mentor • ${langName} Deep Dive
@@ -714,7 +780,7 @@ export function processEntities<T extends { id: string; active: boolean }>(items
 
 ### 🎯 Practice Challenge
 1. How would you refactor the above implementation to handle edge cases like null inputs or network timeouts?
-2. Test your solution by clicking **"Run in Analyzer"** above to inspect real-time cyclomatic complexity and health metrics!`;
+2. Test your solution by clicking **"Run in Analyzer"** above to inspect real-time cyclomatic complexity and health metrics!${rulesSection}`;
   }
 
   return `# DevPulse Intelligence Analysis (${langName})
@@ -731,7 +797,7 @@ export function processEntities<T extends { id: string; active: boolean }>(items
 \`\`\`${language}
 // Recommended refactored pattern in ${langName}
 ${code ? code.trim() : `// Safe, modular implementation in ${langName}`}
-\`\`\``;
+\`\`\`${rulesSection}`;
 }
 
 async function generateWithFallback(
