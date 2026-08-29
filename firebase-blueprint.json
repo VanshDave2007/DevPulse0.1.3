@@ -1,0 +1,50 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "DevPulse User account information and preferences",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "learningLevel": { "type": "string" },
+        "preferredLanguage": { "type": "string" },
+        "analysisCount": { "type": "number" }
+      }
+    },
+    "AnalysisRecord": {
+      "title": "Analysis Record",
+      "description": "Historical code AST analysis record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "fileName": { "type": "string" },
+        "language": { "type": "string" },
+        "codeSnippet": { "type": "string" },
+        "healthScore": { "type": "number" },
+        "maintainabilityScore": { "type": "number" },
+        "cyclomaticComplexity": { "type": "number" },
+        "loc": { "type": "number" },
+        "smellsCount": { "type": "number" },
+        "timestamp": { "type": "number" }
+      }
+    },
+    "AiConversationRecord": {
+      "title": "AI Conversation Record",
+      "description": "Saved DevPulse AI consultation session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "language": { "type": "string" },
+        "messages": { "type": "array" },
+        "timestamp": { "type": "number" }
+      }
+    }
+  }
+}

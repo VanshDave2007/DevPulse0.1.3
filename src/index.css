@@ -1,0 +1,356 @@
+@import "tailwindcss";
+
+:root {
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* DevPulse Palette - Dark Mode Default */
+  --bg-primary: #08110F;
+  --bg-surface: #0F1C18;
+  --bg-elevated: #14251F;
+  --bg-elevated-hover: #1A3028;
+  
+  --accent-primary: #2DD4BF;
+  --accent-secondary: #14B8A6;
+  --accent-highlight: #A7F3D0;
+  
+  --text-primary: #ECFDF5;
+  --text-secondary: #9FB8AF;
+  --text-muted: #668078;
+  
+  --border-subtle: #203A32;
+  --border-strong: #2D4F44;
+
+  --color-success: #34D399;
+  --color-warning: #FBBF24;
+  --color-danger: #FB7185;
+  --color-info: #60A5FA;
+}
+
+/* Light Mode Overrides */
+[data-theme="light"] {
+  --bg-primary: #F4F7F6;
+  --bg-surface: #FFFFFF;
+  --bg-elevated: #E6EFEA;
+  --bg-elevated-hover: #D7E5DD;
+
+  --accent-primary: #0D9488;
+  --accent-secondary: #0F766E;
+  --accent-highlight: #115E59;
+
+  --text-primary: #0F2922;
+  --text-secondary: #2C5348;
+  --text-muted: #5B7C72;
+
+  --border-subtle: #CFDFD7;
+  --border-strong: #A8C4B8;
+
+  --color-success: #059669;
+  --color-warning: #D97706;
+  --color-danger: #E11D48;
+  --color-info: #2563EB;
+}
+
+/* High Contrast Mode */
+[data-contrast="high"] {
+  --border-subtle: #4ADE80;
+  --border-strong: #22C55E;
+}
+[data-theme="light"][data-contrast="high"] {
+  --border-subtle: #047857;
+  --border-strong: #064E3B;
+  --text-primary: #000000;
+  --text-secondary: #111827;
+}
+
+/* Reduced Motion Mode */
+[data-motion="reduced"] *,
+[data-motion="reduced"] *::before,
+[data-motion="reduced"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Font scale modes */
+[data-font-size="small"] {
+  font-size: 14px;
+}
+[data-font-size="default"] {
+  font-size: 16px;
+}
+[data-font-size="large"] {
+  font-size: 18px;
+}
+[data-font-size="xl"] {
+  font-size: 20px;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Smooth Theme Switching Animation */
+html.theme-transitioning,
+html.theme-transitioning *,
+html.theme-transitioning *::before,
+html.theme-transitioning *::after {
+  transition: background-color 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important,
+              border-color 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important,
+              color 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important,
+              box-shadow 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important,
+              fill 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important,
+              stroke 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* Theme Toggle Button Spin/Pulse Animation */
+@keyframes themeIconSwitch {
+  0% { transform: rotate(0deg) scale(0.85); opacity: 0.6; }
+  50% { transform: rotate(180deg) scale(1.15); opacity: 1; }
+  100% { transform: rotate(360deg) scale(1); opacity: 1; }
+}
+
+.animate-theme-switch {
+  animation: themeIconSwitch 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+code, pre, .font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-surface);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+
+/* Focus styles for keyboard accessibility */
+:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* Theme-Aware Semantic Utility Classes */
+.bg-pulse-bg { background-color: var(--bg-primary); }
+.bg-pulse-surface { background-color: var(--bg-surface); }
+.bg-pulse-elevated { background-color: var(--bg-elevated); }
+.hover\:bg-pulse-elevated-hover:hover { background-color: var(--bg-elevated-hover); }
+.hover\:bg-pulse-surface:hover { background-color: var(--bg-surface); }
+.border-pulse-subtle { border-color: var(--border-subtle); }
+.border-pulse-strong { border-color: var(--border-strong); }
+.text-pulse-primary { color: var(--text-primary); }
+.text-pulse-secondary { color: var(--text-secondary); }
+.text-pulse-muted { color: var(--text-muted); }
+.text-pulse-accent { color: var(--accent-primary); }
+.bg-pulse-accent { background-color: var(--accent-primary); }
+
+/* Animation keyframes */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slideUp {
+  animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes scaleUp {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-scaleUp {
+  animation: scaleUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes slideLeft {
+  from {
+    transform: translateX(100%);
+    opacity: 0.8;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slideLeft {
+  animation: slideLeft 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Mascot Keyframe Animations */
+@keyframes mascotIdle {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes mascotThinking {
+  0%, 100% {
+    transform: rotate(0deg) translateY(0);
+  }
+  25% {
+    transform: rotate(-2.5deg) translateY(-1px);
+  }
+  75% {
+    transform: rotate(2.5deg) translateY(-1px);
+  }
+}
+
+@keyframes mascotStreaming {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  25% {
+    transform: translateY(-2px) scale(1.02);
+  }
+  50% {
+    transform: translateY(0px) scale(1);
+  }
+  75% {
+    transform: translateY(-1.5px) scale(1.02);
+  }
+}
+
+@keyframes mascotCelebrating {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  30% {
+    transform: translateY(-5px) scale(1.06) rotate(-2deg);
+  }
+  60% {
+    transform: translateY(-3px) scale(1.04) rotate(2deg);
+  }
+}
+
+@keyframes mascotHelping {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-2px) rotate(-1deg);
+  }
+}
+
+@keyframes mascotSleep {
+  0%, 100% {
+    transform: translateY(1px) scale(0.98);
+    opacity: 0.9;
+  }
+  50% {
+    transform: translateY(2px) scale(0.97);
+    opacity: 0.8;
+  }
+}
+
+.animate-mascot-idle {
+  animation: mascotIdle 3.5s ease-in-out infinite;
+}
+
+.animate-mascot-thinking {
+  animation: mascotThinking 2s ease-in-out infinite;
+}
+
+.animate-mascot-streaming {
+  animation: mascotStreaming 1.5s ease-in-out infinite;
+}
+
+.animate-mascot-celebrating {
+  animation: mascotCelebrating 1.2s cubic-bezier(0.34, 1.56, 0.64, 1) infinite;
+}
+
+.animate-mascot-helping {
+  animation: mascotHelping 2.5s ease-in-out infinite;
+}
+
+.animate-mascot-sleep {
+  animation: mascotSleep 4.5s ease-in-out infinite;
+}
+
+/* Subtle Gutter & Context AI Scanning Animations */
+@keyframes gutterScan {
+  0% {
+    opacity: 0.4;
+    background-position: 0% 0%;
+  }
+  50% {
+    opacity: 0.85;
+    background-position: 100% 100%;
+  }
+  100% {
+    opacity: 0.4;
+    background-position: 0% 0%;
+  }
+}
+
+@keyframes gutterBeam {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  40% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(200%);
+    opacity: 0;
+  }
+}
+
+.animate-gutter-scan {
+  background: linear-gradient(180deg, rgba(45, 212, 191, 0.08) 0%, rgba(45, 212, 191, 0.25) 50%, rgba(45, 212, 191, 0.08) 100%);
+  background-size: 200% 200%;
+  animation: gutterScan 2s ease-in-out infinite;
+}
+
+.animate-gutter-beam {
+  animation: gutterBeam 1.8s ease-in-out infinite;
+}
+
