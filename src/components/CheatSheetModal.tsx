@@ -35,8 +35,9 @@ interface ShortcutItem {
   id: string;
   keys: string[];
   description: string;
-  category: 'Navigation' | 'Analysis & Actions' | 'Modals & Tools' | 'Editor & Views';
+  category: 'Navigation' | 'Focus & Views' | 'Analysis & Actions' | 'Modals & Tools';
   action?: () => void;
+  highlight?: boolean;
 }
 
 interface CheatSheetModalProps {
@@ -77,12 +78,174 @@ export const CheatSheetModal: React.FC<CheatSheetModalProps> = ({ isOpen, onClos
   }, [isOpen, onClose]);
 
   const shortcuts: ShortcutItem[] = [
-    // Global & Modals
+    // Focus Mode & View Controls
+    {
+      id: 'shortcut-toggle-focus-mode',
+      keys: ['Alt/⌥', 'F'],
+      description: 'Toggle Full-Screen Focus Mode (Collapses Sidebar & Header)',
+      category: 'Focus & Views',
+      highlight: true,
+      action: () => {
+        onClose();
+        toggleFocusMode();
+      },
+    },
+    {
+      id: 'shortcut-toggle-focus-mode-alt',
+      keys: ['⌘/Ctrl', 'Shift', 'F'],
+      description: 'Alternative Shortcut to Toggle Full-Screen Focus Mode',
+      category: 'Focus & Views',
+      highlight: true,
+      action: () => {
+        onClose();
+        toggleFocusMode();
+      },
+    },
+    {
+      id: 'shortcut-exit-focus-mode',
+      keys: ['Esc'],
+      description: 'Exit Full-Screen Focus Mode or Close Open Overlay Modals',
+      category: 'Focus & Views',
+      highlight: true,
+    },
+    {
+      id: 'shortcut-toggle-sidebar',
+      keys: ['⌘/Ctrl', '\\'],
+      description: 'Toggle Collapse / Expand Left Navigation Sidebar',
+      category: 'Focus & Views',
+    },
+
+    // Navigation views (Alt + 1..9)
+    {
+      id: 'shortcut-nav-1',
+      keys: ['Alt/⌥', '1'],
+      description: 'Switch to Observatory Dashboard',
+      category: 'Navigation',
+      highlight: true,
+      action: () => {
+        onClose();
+        setActiveTab('dashboard');
+      },
+    },
+    {
+      id: 'shortcut-nav-2',
+      keys: ['Alt/⌥', '2'],
+      description: 'Switch to Analyzer Studio & Code Editor',
+      category: 'Navigation',
+      highlight: true,
+      action: () => {
+        onClose();
+        setActiveTab('analyzer');
+      },
+    },
+    {
+      id: 'shortcut-nav-3',
+      keys: ['Alt/⌥', '3'],
+      description: 'Switch to Agentic Review & PR Intelligence',
+      category: 'Navigation',
+      highlight: true,
+      action: () => {
+        onClose();
+        setActiveTab('agent-review');
+      },
+    },
+    {
+      id: 'shortcut-nav-4',
+      keys: ['Alt/⌥', '4'],
+      description: 'Switch to Code Health & Quality Scorecard',
+      category: 'Navigation',
+      highlight: true,
+      action: () => {
+        onClose();
+        setActiveTab('health');
+      },
+    },
+    {
+      id: 'shortcut-nav-5',
+      keys: ['Alt/⌥', '5'],
+      description: 'Switch to Pulse Architecture Topology Map',
+      category: 'Navigation',
+      highlight: true,
+      action: () => {
+        onClose();
+        setActiveTab('pulse-map');
+      },
+    },
+    {
+      id: 'shortcut-nav-6',
+      keys: ['Alt/⌥', '6'],
+      description: 'Switch to Dependency Pulse & Graph',
+      category: 'Navigation',
+      highlight: true,
+      action: () => {
+        onClose();
+        setActiveTab('dependencies');
+      },
+    },
+    {
+      id: 'shortcut-nav-7',
+      keys: ['Alt/⌥', '7'],
+      description: 'Switch to Pulse AI Engineering Assistant',
+      category: 'Navigation',
+      highlight: true,
+      action: () => {
+        onClose();
+        setActiveTab('pulse-ai');
+      },
+    },
+    {
+      id: 'shortcut-nav-8',
+      keys: ['Alt/⌥', '8'],
+      description: 'Switch to Learn Mode Masterclasses',
+      category: 'Navigation',
+      highlight: true,
+      action: () => {
+        onClose();
+        setActiveTab('learn');
+      },
+    },
+    {
+      id: 'shortcut-nav-9',
+      keys: ['Alt/⌥', '9'],
+      description: 'Switch to Performance & Telemetry Dashboard',
+      category: 'Navigation',
+      highlight: true,
+      action: () => {
+        onClose();
+        setActiveTab('performance');
+      },
+    },
+
+    // Analysis & Actions
+    {
+      id: 'shortcut-run-analysis',
+      keys: ['⌘/Ctrl', 'Enter'],
+      description: 'Run AST & Static Code Quality Analysis',
+      category: 'Analysis & Actions',
+      action: () => {
+        onClose();
+        runAnalysis(code, language);
+      },
+    },
+
+    // Modals & Tools
     {
       id: 'shortcut-cheat-sheet',
       keys: ['Shift', '?'],
-      description: 'Open this Keyboard Shortcuts Cheat Sheet',
+      description: 'Open this Keyboard Shortcuts Quick Reference Overlay',
       category: 'Modals & Tools',
+    },
+    {
+      id: 'shortcut-in-view-search',
+      keys: ['⌘/Ctrl', 'F'],
+      description: 'Focus In-View Keyword Search & Jump to Section/Code',
+      category: 'Modals & Tools',
+      action: () => {
+        onClose();
+        const input = document.getElementById('navbar-view-search-input') as HTMLInputElement | null;
+        input?.focus();
+        input?.select();
+      },
     },
     {
       id: 'shortcut-command-menu',
@@ -92,38 +255,6 @@ export const CheatSheetModal: React.FC<CheatSheetModalProps> = ({ isOpen, onClos
       action: () => {
         onClose();
         setIsCommandMenuOpen(true);
-      },
-    },
-    {
-      id: 'shortcut-toggle-sidebar',
-      keys: ['⌘/Ctrl', '\\'],
-      description: 'Toggle Collapse / Expand Left Navigation Sidebar',
-      category: 'Editor & Views',
-    },
-    {
-      id: 'shortcut-toggle-focus-mode',
-      keys: ['Alt/⌥', 'F'],
-      description: 'Toggle Full-Screen Focus Mode (Collapses Sidebar & Header)',
-      category: 'Editor & Views',
-      action: () => {
-        onClose();
-        toggleFocusMode();
-      },
-    },
-    {
-      id: 'shortcut-exit-focus-mode',
-      keys: ['Esc'],
-      description: 'Exit Full-Screen Focus Mode or Close Open Modals',
-      category: 'Editor & Views',
-    },
-    {
-      id: 'shortcut-run-analysis',
-      keys: ['⌘/Ctrl', 'Enter'],
-      description: 'Run AST & Static Code Quality Analysis',
-      category: 'Analysis & Actions',
-      action: () => {
-        onClose();
-        runAnalysis(code, language);
       },
     },
     {
@@ -175,98 +306,6 @@ export const CheatSheetModal: React.FC<CheatSheetModalProps> = ({ isOpen, onClos
         setTheme(theme === 'dark' ? 'light' : 'dark');
       },
     },
-
-    // Navigation views (1-9)
-    {
-      id: 'shortcut-nav-1',
-      keys: ['Alt/Option', '1'],
-      description: 'Switch to Observatory Dashboard',
-      category: 'Navigation',
-      action: () => {
-        onClose();
-        setActiveTab('dashboard');
-      },
-    },
-    {
-      id: 'shortcut-nav-2',
-      keys: ['Alt/Option', '2'],
-      description: 'Switch to Analyzer Studio & Editor',
-      category: 'Navigation',
-      action: () => {
-        onClose();
-        setActiveTab('analyzer');
-      },
-    },
-    {
-      id: 'shortcut-nav-3',
-      keys: ['Alt/Option', '3'],
-      description: 'Switch to Agentic Review & PR Intelligence',
-      category: 'Navigation',
-      action: () => {
-        onClose();
-        setActiveTab('agent-review');
-      },
-    },
-    {
-      id: 'shortcut-nav-4',
-      keys: ['Alt/Option', '4'],
-      description: 'Switch to Code Health & Quality Scorecard',
-      category: 'Navigation',
-      action: () => {
-        onClose();
-        setActiveTab('health');
-      },
-    },
-    {
-      id: 'shortcut-nav-5',
-      keys: ['Alt/Option', '5'],
-      description: 'Switch to Pulse Architecture Topology Map',
-      category: 'Navigation',
-      action: () => {
-        onClose();
-        setActiveTab('pulse-map');
-      },
-    },
-    {
-      id: 'shortcut-nav-6',
-      keys: ['Alt/Option', '6'],
-      description: 'Switch to Dependency Pulse & Graph',
-      category: 'Navigation',
-      action: () => {
-        onClose();
-        setActiveTab('dependencies');
-      },
-    },
-    {
-      id: 'shortcut-nav-7',
-      keys: ['Alt/Option', '7'],
-      description: 'Switch to Pulse AI Engineering Assistant',
-      category: 'Navigation',
-      action: () => {
-        onClose();
-        setActiveTab('pulse-ai');
-      },
-    },
-    {
-      id: 'shortcut-nav-8',
-      keys: ['Alt/Option', '8'],
-      description: 'Switch to Learn Mode Masterclasses',
-      category: 'Navigation',
-      action: () => {
-        onClose();
-        setActiveTab('learn');
-      },
-    },
-    {
-      id: 'shortcut-nav-9',
-      keys: ['Alt/Option', '9'],
-      description: 'Switch to Performance & Telemetry Dashboard',
-      category: 'Navigation',
-      action: () => {
-        onClose();
-        setActiveTab('performance');
-      },
-    },
     {
       id: 'shortcut-nav-tour',
       keys: ['⌘/Ctrl', 'Shift', 'H'],
@@ -279,7 +318,7 @@ export const CheatSheetModal: React.FC<CheatSheetModalProps> = ({ isOpen, onClos
     },
   ];
 
-  const categories = ['ALL', 'Modals & Tools', 'Navigation', 'Analysis & Actions', 'Editor & Views'] as const;
+  const categories = ['ALL', 'Navigation', 'Focus & Views', 'Analysis & Actions', 'Modals & Tools'] as const;
 
   const filteredShortcuts = shortcuts.filter((item) => {
     const matchesCategory = activeCategory === 'ALL' || item.category === activeCategory;
@@ -366,7 +405,59 @@ export const CheatSheetModal: React.FC<CheatSheetModalProps> = ({ isOpen, onClos
         </div>
 
         {/* Shortcuts Grid List */}
-        <div className="overflow-y-auto p-4 sm:p-6 space-y-3 divide-y divide-pulse-subtle/30">
+        <div className="overflow-y-auto p-4 sm:p-6 space-y-4 [scrollbar-width:thin]">
+          {/* Quick-Reference Highlight Cards (Navigation & Focus Mode) */}
+          {activeCategory === 'ALL' && searchQuery.trim() === '' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-2 border-b border-pulse-subtle/40">
+              {/* Focus Mode Highlight */}
+              <div
+                onClick={() => {
+                  onClose();
+                  toggleFocusMode();
+                }}
+                className="p-3.5 rounded-2xl bg-gradient-to-br from-teal-500/10 to-teal-500/5 border border-teal-500/30 hover:border-teal-500/60 cursor-pointer transition flex items-center justify-between gap-3 group"
+              >
+                <div className="space-y-0.5 min-w-0">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse" />
+                    <span className="text-xs font-bold text-teal-600 dark:text-teal-300">Focus Mode Toggle</span>
+                  </div>
+                  <p className="text-[11px] text-pulse-secondary">
+                    Collapse all chrome for distraction-free code analysis
+                  </p>
+                </div>
+                <div className="flex items-center space-x-1 shrink-0">
+                  <kbd className="px-2 py-1 rounded-lg text-xs font-mono font-bold bg-pulse-surface border border-teal-500/40 text-teal-600 dark:text-teal-300 shadow-sm">
+                    ⌥F
+                  </kbd>
+                  <span className="text-pulse-muted text-[10px]">or</span>
+                  <kbd className="px-2 py-1 rounded-lg text-xs font-mono font-bold bg-pulse-surface border border-teal-500/40 text-teal-600 dark:text-teal-300 shadow-sm">
+                    Esc
+                  </kbd>
+                </div>
+              </div>
+
+              {/* Instant View Navigation Highlight */}
+              <div className="p-3.5 rounded-2xl bg-pulse-elevated/80 border border-pulse-subtle hover:border-pulse-accent/40 transition flex items-center justify-between gap-3">
+                <div className="space-y-0.5 min-w-0">
+                  <span className="text-xs font-bold text-pulse-primary">Direct View Switching</span>
+                  <p className="text-[11px] text-pulse-secondary">
+                    Jump to any view instantly (Observatory, Analyzer, AI...)
+                  </p>
+                </div>
+                <div className="flex items-center space-x-1 shrink-0">
+                  <kbd className="px-2 py-1 rounded-lg text-xs font-mono font-bold bg-pulse-surface border border-pulse-subtle text-pulse-accent shadow-sm">
+                    Alt
+                  </kbd>
+                  <span className="text-pulse-muted text-[10px]">+</span>
+                  <kbd className="px-2 py-1 rounded-lg text-xs font-mono font-bold bg-pulse-surface border border-pulse-subtle text-pulse-accent shadow-sm">
+                    1-9
+                  </kbd>
+                </div>
+              </div>
+            </div>
+          )}
+
           {filteredShortcuts.length === 0 ? (
             <div className="py-12 text-center text-pulse-muted text-xs">
               No shortcuts found matching &quot;{searchQuery}&quot;

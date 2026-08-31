@@ -8,6 +8,7 @@ import {
   FileCode,
   GitPullRequest,
   HeartPulse,
+  Keyboard,
   Maximize2,
   Minimize2,
   Network,
@@ -24,6 +25,7 @@ export const FocusModeBar: React.FC = () => {
     isFocusMode,
     setIsFocusMode,
     toggleFocusMode,
+    setIsCheatSheetOpen,
     fileName,
     analysis,
     code,
@@ -185,6 +187,18 @@ export const FocusModeBar: React.FC = () => {
               <span>{healthScore}</span>
             </div>
           )}
+
+          {/* Shortcuts Quick Reference in Focus Mode */}
+          <button
+            type="button"
+            id="focus-mode-shortcuts-button"
+            onClick={() => setIsCheatSheetOpen(true)}
+            className="p-1.5 text-pulse-muted hover:text-pulse-primary hover:bg-pulse-elevated rounded-xl transition cursor-pointer"
+            title="Keyboard Shortcuts Quick Reference (Shift + ?)"
+            aria-label="Keyboard Shortcuts Quick Reference"
+          >
+            <Keyboard className="h-4 w-4 text-pulse-accent" />
+          </button>
 
           {/* Minimize Floating Bar into Corner Badge */}
           <button

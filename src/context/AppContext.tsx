@@ -41,8 +41,10 @@ import { telemetry } from '../services/telemetry';
 import { sessionTracker } from '../services/sessionTracker';
 import { RepositoryIntelligenceService } from '../services/repositoryIntelligenceService';
 import { EvidenceGraphService } from '../services/evidenceGraphService';
+import { CodebaseContextService } from '../services/codebaseContextService';
 import { ProjectMemoryService } from '../services/projectMemoryService';
 import { normalizeCodeSmells } from '../engine/actionCenter';
+import { WorkspaceManager, calculateContentHash } from '../services/workspaceManager';
 
 export type NavTab =
   | 'dashboard'
@@ -109,6 +111,8 @@ interface AppContextType {
   setIsOnboardingOpen: (open: boolean) => void;
   isExportModalOpen: boolean;
   setIsExportModalOpen: (open: boolean) => void;
+  isFeedbackOpen: boolean;
+  setIsFeedbackOpen: (open: boolean) => void;
   isDirty: boolean;
   setIsDirty: (dirty: boolean) => void;
   pendingAction: PendingAction | null;
@@ -136,7 +140,10 @@ interface AppContextType {
   setIsFixModalOpen: (open: boolean) => void;
   activeFixSmell: CodeSmell | null;
   setActiveFixSmell: (smell: CodeSmell | null) => void;
+  activeFixFinding: ActionFinding | null;
+  setActiveFixFinding: (finding: ActionFinding | null) => void;
   openFixModalForSmell: (smell: CodeSmell) => void;
+  openFixModalForFinding: (finding: ActionFinding) => void;
 
   // Personalization & Questionnaire
   personalizationProfile: UserPersonalizationProfile;
@@ -178,14 +185,27 @@ const defaultAccessibility: AccessibilitySettings = {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // Load saved workspace state from localStorage if available
+  const savedWorkspaceState = (() => {
+    try {
+      const raw = localStorage.getItem('devpulse_saved_workspace_state');
+      if (raw) {
+        return JSON.parse(raw);
+      }
+    } catch (e) {
+      console.warn('Could not parse saved workspace state:', e);
+    }
+    return null;
+  })();
+
   const initialPreset = SAMPLE_PROJECTS[0];
-  const [code, setCodeInternal] = useState<string>(initialPreset.code);
-  const [fileName, setFileName] = useState<string>('order_processor.py');
-  const [language, setLanguage] = useState<SupportedLanguage>('python');
-  const [isAutoDetect, setIsAutoDetect] = useState<boolean>(true);
+  const [code, setCodeInternal] = useState<string>(() => savedWorkspaceState?.code ?? initialPreset.code);
+  const [fileName, setFileName] = useState<string>(() => savedWorkspaceState?.fileName ?? 'order_processor.py');
+  const [language, setLanguage] = useState<SupportedLanguage>(() => savedWorkspaceState?.language ?? 'python');
+  const [isAutoDetect, setIsAutoDetect] = useState<boolean>(() => savedWorkspaceState?.isAutoDetect ?? true);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
-  const [activeTabInternal, setActiveTabInternal] = useState<NavTab>('dashboard');
+  const [activeTabInternal, setActiveTabInternal] = useState<NavTab>(() => savedWorkspaceState?.activeTab ?? 'dashboard');
   const setActiveTab = (tab: NavTab) => {
     setActiveTabInternal(tab);
     sessionTracker.recordFeatureClick(tab);
@@ -196,6 +216,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isCommandMenuOpen, setIsCommandMenuOpen] = useState<boolean>(false);
   const [isCheatSheetOpen, setIsCheatSheetOpen] = useState<boolean>(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState<boolean>(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(() => {
     return !localStorage.getItem('devpulse_onboarding_dismissed');
   });
@@ -214,6 +235,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // AI Fix Assistance
   const [isFixModalOpen, setIsFixModalOpen] = useState<boolean>(false);
   const [activeFixSmell, setActiveFixSmell] = useState<CodeSmell | null>(null);
+  const [activeFixFinding, setActiveFixFinding] = useState<ActionFinding | null>(null);
 
   // Personalization & Knowledge Profile State
   const [personalizationProfile, setPersonalizationProfile] = useState<UserPersonalizationProfile>(() => {
@@ -260,6 +282,93 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const removeToast = (id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
+
+  // ---------------------------------------------------------------------------
+  // 30-SECOND WORKSPACE AUTO-SAVE TO LOCAL STORAGE WITH TOAST NOTIFICATION
+  // ---------------------------------------------------------------------------
+  const codeRef = useRef(code);
+  const fileNameRef = useRef(fileName);
+  const languageRef = useRef(language);
+  const isAutoDetectRef = useRef(isAutoDetect);
+  const activeTabRef = useRef(activeTab);
+  const analysisRef = useRef(analysis);
+
+  useEffect(() => {
+    codeRef.current = code;
+    fileNameRef.current = fileName;
+    languageRef.current = language;
+    isAutoDetectRef.current = isAutoDetect;
+    activeTabRef.current = activeTab;
+    analysisRef.current = analysis;
+  });
+
+  useEffect(() => {
+    const AUTO_SAVE_INTERVAL_MS = 30000; // 30 seconds
+
+    const intervalId = setInterval(() => {
+      try {
+        const currentCode = codeRef.current;
+        const currentFileName = fileNameRef.current;
+        const currentLanguage = languageRef.current;
+        const currentTab = activeTabRef.current;
+        const currentAnalysis = analysisRef.current;
+
+        const ws = WorkspaceManager.getInstance().getWorkspace();
+
+        const stateToSave = {
+          id: ws.id || `ws-${Date.now()}`,
+          name: ws.name || currentFileName,
+          fileName: currentFileName,
+          language: currentLanguage,
+          isAutoDetect: isAutoDetectRef.current,
+          code: currentCode,
+          activeTab: currentTab,
+          savedAt: Date.now(),
+          savedAtIso: new Date().toISOString(),
+          files: ws.files && ws.files.length > 0 ? ws.files : [
+            {
+              path: currentFileName,
+              relativePath: currentFileName,
+              language: currentLanguage,
+              content: currentCode,
+              size: new Blob([currentCode]).size,
+              modified: Date.now(),
+              status: 'UNCHANGED' as const,
+              isProtected: false,
+              isTooLarge: false,
+              hash: calculateContentHash(currentCode),
+            },
+          ],
+          metrics: currentAnalysis
+            ? {
+                healthScore: currentAnalysis.metrics.healthScore,
+                maintainabilityScore: currentAnalysis.metrics.maintainabilityScore,
+                cyclomaticComplexity: currentAnalysis.metrics.cyclomaticComplexity,
+                loc: currentAnalysis.metrics.loc,
+                smellsCount: currentAnalysis.smells.length,
+              }
+            : undefined,
+        };
+
+        localStorage.setItem('devpulse_saved_workspace_state', JSON.stringify(stateToSave));
+
+        // Synchronize in-memory WorkspaceManager file instance
+        WorkspaceManager.getInstance().writeFile(currentFileName, currentCode).catch(() => {});
+
+        // Emit subtle toast notification indicating auto-save completed
+        addToast({
+          title: 'Workspace Auto-Saved',
+          description: `Auto-saved "${currentFileName}" state to local storage.`,
+          type: 'info',
+          duration: 3000,
+        });
+      } catch (err) {
+        console.warn('Workspace auto-save error:', err);
+      }
+    }, AUTO_SAVE_INTERVAL_MS);
+
+    return () => clearInterval(intervalId);
+  }, []);
 
   // Ask Your Codebase Intelligence state
   const [lastAskResult, setLastAskResult] = useState<AskResult | null>(null);
@@ -438,11 +547,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setAnalysis(res);
       setIsAnalyzing(false);
 
-      // Build & Sync Deterministic Evidence Graph
+      // Build & Sync Deterministic Evidence Graph & Codebase Context Graph
       try {
         const actionFindings = normalizeCodeSmells(res.smells, fileName, res.metrics);
         const graph = EvidenceGraphService.buildGraph(res, actionFindings, targetCode, fileName);
         setActiveEvidenceGraph(graph);
+
+        // Build Codebase Context Graph (Prompt 29)
+        CodebaseContextService.buildGraph(
+          [{ path: fileName, content: targetCode, language: targetLang }],
+          res,
+          actionFindings,
+          fileName.replace(/\.[^/.]+$/, '') || 'devpulse-project'
+        );
       } catch (err) {
         console.warn('Could not sync evidence graph:', err);
       }
@@ -683,6 +800,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const openFixModalForSmell = (smell: CodeSmell) => {
     setActiveFixSmell(smell);
+    setActiveFixFinding(null);
+    setIsFixModalOpen(true);
+  };
+
+  const openFixModalForFinding = (finding: ActionFinding) => {
+    setActiveFixFinding(finding);
+    setActiveFixSmell(null);
     setIsFixModalOpen(true);
   };
 
@@ -1088,6 +1212,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsOnboardingOpen,
         isExportModalOpen,
         setIsExportModalOpen,
+        isFeedbackOpen,
+        setIsFeedbackOpen,
         isDirty,
         setIsDirty,
         pendingAction,
@@ -1112,7 +1238,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsFixModalOpen,
         activeFixSmell,
         setActiveFixSmell,
+        activeFixFinding,
+        setActiveFixFinding,
         openFixModalForSmell,
+        openFixModalForFinding,
 
         personalizationProfile,
         updatePersonalizationProfile,

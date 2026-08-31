@@ -313,8 +313,13 @@ CORE TEACHING PHILOSOPHY & MENTORSHIP:
    - Never invent line numbers, variables, or CVEs that are not in the real analysis or code.
    - For complexity and code smells, always cite the real numbers: e.g. "Actual complexity: ${metrics?.cyclomaticComplexity ?? 1}, Threshold: 10, Assessment: ${metrics && metrics.cyclomaticComplexity > 10 ? 'High' : 'Normal'}".
 
-5. ${levelInstruction}
-6. Always format code cleanly in standard markdown code blocks (\`\`\`${language}).`;
+5. 15-Language Multi-Paradigm Deep Intelligence:
+   - Target Language: \`${language}\`. Adapt all recommendations to the idioms, memory model, concurrency primitives, and type system of \`${language}\`.
+   - Never suggest language-foreign idioms (e.g., do not suggest Python duck-typing in Rust, or Rust ownership borrow rules in JavaScript).
+   - Recognize language error classifications: SYNTAX, TYPE, COMPILE, RUNTIME, LOGIC, MEMORY, CONCURRENCY, DEPENDENCY, BUILD, CONFIGURATION, SECURITY, PERFORMANCE, DATABASE, NETWORK, TEST.
+
+6. ${levelInstruction}
+7. Always format code cleanly in standard markdown code blocks (\`\`\`${language}).`;
 
   // Context summary
   const topIssues = Array.isArray(issues) ? issues.slice(0, 6) : [];

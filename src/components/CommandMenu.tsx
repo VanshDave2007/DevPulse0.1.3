@@ -17,6 +17,7 @@ import {
   Keyboard,
   Layers,
   Maximize2,
+  MessageSquare,
   Moon,
   Network,
   Search,
@@ -44,6 +45,7 @@ export const CommandMenu: React.FC = () => {
     setIsOnboardingOpen,
     setIsExportModalOpen,
     setIsCheatSheetOpen,
+    setIsFeedbackOpen,
     toggleFocusMode,
   } = useApp();
 
@@ -208,6 +210,16 @@ export const CommandMenu: React.FC = () => {
         icon: HelpCircle,
         action: () => {
           setIsOnboardingOpen(true);
+          setIsCommandMenuOpen(false);
+        },
+      },
+      {
+        id: 'nav-feedback',
+        category: 'Help',
+        label: 'Share Feedback & Rate DevPulse Experience',
+        icon: MessageSquare,
+        action: () => {
+          setIsFeedbackOpen(true);
           setIsCommandMenuOpen(false);
         },
       },

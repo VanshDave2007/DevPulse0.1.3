@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Breadcrumb } from './Breadcrumb';
+import { ViewSearchInput } from './ViewSearchInput';
 
 interface NavbarProps {
   onOpenMobileSidebar: () => void;
@@ -95,37 +96,42 @@ export const Navbar: React.FC<NavbarProps> = ({
         <Breadcrumb />
       </div>
 
-      {/* SECTION 2: Analysis Context / Selector (Center Section) */}
-      {analysis && (
-        <div className="truncate max-w-[200px] sm:max-w-xs flex items-center min-w-0">
-          <button
-            id="header-analysis-selector"
-            type="button"
-            onClick={() => {
-              if (activeTab !== 'analyzer') {
-                setActiveTab('analyzer');
-              }
-            }}
-            className="flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-pulse-surface hover:bg-pulse-elevated border border-pulse-subtle hover:border-pulse-strong text-xs font-mono transition cursor-pointer min-w-0 max-w-full shadow-sm group truncate"
-            title={`${analysis.languageName} — Active Target: ${fileName || 'Active Buffer'}`}
-            aria-label={`Analysis Engine: ${analysis.languageName}. Target File: ${fileName || 'Active Buffer'}`}
-          >
-            <FileCode className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400 shrink-0 group-hover:scale-105 transition-transform" />
-            <span
-              className="font-semibold text-pulse-primary truncate shrink min-w-0"
-              title={fileName || 'code.ts'}
+      {/* SECTION 2: Analysis Context & Quick View Search */}
+      <div className="flex items-center space-x-2.5 min-w-0 mx-auto sm:mx-2 lg:mx-4">
+        {analysis && (
+          <div className="truncate max-w-[140px] sm:max-w-[200px] hidden md:flex items-center min-w-0">
+            <button
+              id="header-analysis-selector"
+              type="button"
+              onClick={() => {
+                if (activeTab !== 'analyzer') {
+                  setActiveTab('analyzer');
+                }
+              }}
+              className="flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-pulse-surface hover:bg-pulse-elevated border border-pulse-subtle hover:border-pulse-strong text-xs font-mono transition cursor-pointer min-w-0 max-w-full shadow-sm group truncate"
+              title={`${analysis.languageName} — Active Target: ${fileName || 'Active Buffer'}`}
+              aria-label={`Analysis Engine: ${analysis.languageName}. Target File: ${fileName || 'Active Buffer'}`}
             >
-              {fileName || 'code.ts'}
-            </span>
-            <span
-              className="text-pulse-muted text-[11px] truncate shrink opacity-75 hidden sm:inline min-w-0"
-              title={analysis.languageName}
-            >
-              ({analysis.languageName})
-            </span>
-          </button>
-        </div>
-      )}
+              <FileCode className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400 shrink-0 group-hover:scale-105 transition-transform" />
+              <span
+                className="font-semibold text-pulse-primary truncate shrink min-w-0"
+                title={fileName || 'code.ts'}
+              >
+                {fileName || 'code.ts'}
+              </span>
+              <span
+                className="text-pulse-muted text-[11px] truncate shrink opacity-75 hidden lg:inline min-w-0"
+                title={analysis.languageName}
+              >
+                ({analysis.languageName})
+              </span>
+            </button>
+          </div>
+        )}
+
+        {/* View Keyword Search & Quick Jump Input */}
+        <ViewSearchInput />
+      </div>
 
       {/* SECTION 3 & 4: Score / Status & Utility Actions */}
       <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0 ml-auto">

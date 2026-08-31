@@ -29,8 +29,10 @@ import { FixModal } from './components/FixModal';
 import { QuestionnaireModal } from './components/QuestionnaireModal';
 import { MascotSheetModal } from './components/MascotSheetModal';
 import { CheatSheetModal } from './components/CheatSheetModal';
+import { FeedbackModal } from './components/FeedbackModal';
 import { FocusModeBar } from './components/FocusModeBar';
 import { ToastContainer } from './components/Toast';
+import { Keyboard, MessageSquare } from 'lucide-react';
 
 const MainLayout: React.FC = () => {
   const {
@@ -49,10 +51,13 @@ const MainLayout: React.FC = () => {
     isFixModalOpen,
     setIsFixModalOpen,
     activeFixSmell,
+    activeFixFinding,
     isMascotSheetOpen,
     setIsMascotSheetOpen,
     isCheatSheetOpen,
     setIsCheatSheetOpen,
+    isFeedbackOpen,
+    setIsFeedbackOpen,
     isSettingsOpen,
     isCommandMenuOpen,
     isOnboardingOpen,
@@ -182,16 +187,48 @@ const MainLayout: React.FC = () => {
           {activeTab === 'about' && <AboutView />}
         </main>
 
-        {/* Footer (Hidden during Focus Mode for zero clutter) */}
+        {/* Footer (with persistent shortcuts trigger) */}
         {!isFocusMode && (
-          <footer className="border-t border-pulse-subtle bg-pulse-surface/40 py-6 text-center text-xs text-pulse-secondary mt-auto">
-            <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-              <p className="font-mono">
-                DEV<span className="text-pulse-accent">PULSE</span> · Code Intelligence Platform
-              </p>
-              <p className="text-[11px] text-pulse-muted font-mono">
-                © 2026 Vansh Dave. All Rights Reserved.
-              </p>
+          <footer className="border-t border-pulse-subtle bg-pulse-surface/40 py-4 sm:py-5 text-xs text-pulse-secondary mt-auto">
+            <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5 sm:gap-3">
+                <p className="font-mono">
+                  DEV<span className="text-pulse-accent">PULSE</span> · Code Intelligence Platform
+                </p>
+                <span className="text-pulse-muted hidden sm:inline">·</span>
+                {/* Small persistent footer button for Keyboard Shortcuts Quick Reference */}
+                <button
+                  type="button"
+                  id="footer-shortcuts-trigger-button"
+                  onClick={() => setIsCheatSheetOpen(true)}
+                  className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-pulse-surface hover:bg-pulse-elevated border border-pulse-subtle hover:border-teal-500/40 text-[11px] font-mono text-pulse-secondary hover:text-pulse-primary transition cursor-pointer shadow-xs group"
+                  title="Keyboard Shortcuts Quick Reference (Shift + ? or Alt + F)"
+                  aria-label="Keyboard Shortcuts Quick Reference"
+                >
+                  <Keyboard className="h-3.5 w-3.5 text-pulse-accent group-hover:scale-110 transition-transform" />
+                  <span>Shortcuts</span>
+                  <kbd className="hidden sm:inline-block px-1.5 py-0.2 bg-pulse-elevated border border-pulse-subtle rounded text-[9px] text-pulse-muted">
+                    ⇧?
+                  </kbd>
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-center sm:justify-end gap-3 text-[11px] text-pulse-muted font-mono">
+                <span>© 2026 Vansh Dave. All Rights Reserved.</span>
+                <span className="text-pulse-subtle hidden sm:inline">·</span>
+                {/* Small Feedback button on far right of footer */}
+                <button
+                  type="button"
+                  id="footer-feedback-trigger-button"
+                  onClick={() => setIsFeedbackOpen(true)}
+                  className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-pulse-surface hover:bg-pulse-elevated border border-pulse-subtle hover:border-teal-500/40 text-[11px] font-sans text-pulse-secondary hover:text-pulse-primary transition cursor-pointer shadow-xs group"
+                  title="Submit feedback regarding your DevPulse experience"
+                  aria-label="Share Feedback"
+                >
+                  <MessageSquare className="h-3 w-3 text-pulse-accent group-hover:scale-110 transition-transform" />
+                  <span>Feedback</span>
+                </button>
+              </div>
             </div>
           </footer>
         )}
@@ -208,6 +245,12 @@ const MainLayout: React.FC = () => {
 
       {/* Unsaved Changes Protection Modal */}
       <UnsavedChangesModal />
+
+      {/* User Feedback & Experience Modal */}
+      <FeedbackModal
+        isOpen={isFeedbackOpen}
+        onClose={() => setIsFeedbackOpen(false)}
+      />
 
       {/* Export Report & Findings Modal */}
       <ExportModal
@@ -238,6 +281,7 @@ const MainLayout: React.FC = () => {
         isOpen={isFixModalOpen}
         onClose={() => setIsFixModalOpen(false)}
         smell={activeFixSmell}
+        actionFinding={activeFixFinding}
       />
 
       {/* Knowledge Assessment Questionnaire Modal */}

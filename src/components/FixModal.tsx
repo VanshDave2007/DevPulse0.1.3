@@ -1,4 +1,9 @@
-import React, { useState, useEffect } from 'react';
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Sparkles,
   X,
@@ -32,6 +37,15 @@ import {
   Activity,
   RefreshCw,
   Info,
+  Sliders,
+  HelpCircle,
+  AlertCircle,
+  FileEdit,
+  Eye,
+  CheckSquare,
+  Ban,
+  FlaskConical,
+  GraduationCap,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import {
@@ -41,11 +55,13 @@ import {
   ComprehensiveVerificationReport,
   DiscoveredTestCase,
   FixPlan,
+  KnowledgeLevel,
   PatchValidationResult,
   RegressionCheckResult,
   RemediationAuditRecord,
   RemediationStepPhase,
   SecurityVerificationResult,
+  StructuredFixExplanation,
   TestCoverageTelemetry,
   TestGapItem,
   TestVerificationResult,
@@ -66,6 +82,8 @@ interface FixModalProps {
   onVerifiedFixApplied?: (findingId: string) => void;
 }
 
+type DiffDisplayMode = 'unified' | 'split' | 'edit';
+
 export const FixModal: React.FC<FixModalProps> = ({
   isOpen,
   onClose,
@@ -82,6 +100,7 @@ export const FixModal: React.FC<FixModalProps> = ({
     analyzeCurrentCode,
     personalizationProfile,
     analysis,
+    addToast,
   } = useApp();
   const { sendRequest, isLoading: isAiLoading } = usePulseAI({ scope: 'analyzer' });
 
@@ -99,6 +118,16 @@ export const FixModal: React.FC<FixModalProps> = ({
   const [expandedLogStage, setExpandedLogStage] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState<boolean>(false);
 
+  // Initial code snapshot when modal opened (for conflict detection)
+  const [initialCodeSnapshot, setInitialCodeSnapshot] = useState<string>('');
+  const [conflictDetected, setConflictDetected] = useState<boolean>(false);
+
+  // Structured Explanation & Knowledge Level
+  const [knowledgeLevel, setKnowledgeLevel] = useState<KnowledgeLevel>(
+    personalizationProfile?.knowledge_level || 'intermediate'
+  );
+  const [structuredExplanation, setStructuredExplanation] = useState<StructuredFixExplanation | null>(null);
+
   // Test Intelligence State
   const [discoveredTests, setDiscoveredTests] = useState<DiscoveredTestCase[]>([]);
   const [candidateTests, setCandidateTests] = useState<CandidateTest[]>([]);
@@ -107,16 +136,26 @@ export const FixModal: React.FC<FixModalProps> = ({
   const [selectedCandidateTest, setSelectedCandidateTest] = useState<CandidateTest | null>(null);
   const [copiedTestIdx, setCopiedTestIdx] = useState<number | null>(null);
 
+  // Execution & Diff State
   const [isApplying, setIsApplying] = useState(false);
   const [isApplied, setIsApplied] = useState(false);
   const [isReverted, setIsReverted] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [diffViewMode, setDiffViewMode] = useState<'unified' | 'side-by-side'>('unified');
+  const [diffMode, setDiffMode] = useState<DiffDisplayMode>('unified');
+  const [editableCode, setEditableCode] = useState<string>('');
+
+  // Rejection & Feedback State
+  const [showRejectMenu, setShowRejectMenu] = useState<boolean>(false);
+  const [rejectionReason, setRejectionReason] = useState<string>('Incorrect logic');
+  const [rejectionNotes, setRejectionNotes] = useState<string>('');
   const [feedbackSubmitted, setFeedbackSubmitted] = useState<boolean>(false);
   const [feedbackText, setFeedbackText] = useState<string>('');
 
+  // QA Simulation Scenario State
+  const [activeSimulationScenario, setActiveSimulationScenario] = useState<string>('DEFAULT');
+
   // Normalize input into ActionFinding
-  const targetFinding: ActionFinding | null = React.useMemo(() => {
+  const targetFinding: ActionFinding | null = useMemo(() => {
     if (actionFinding) return actionFinding;
     if (smell) {
       const normalized = normalizeCodeSmells([smell], fileName, analysis?.metrics);
@@ -130,13 +169,29 @@ export const FixModal: React.FC<FixModalProps> = ({
       setIsApplied(false);
       setIsReverted(false);
       setCopied(false);
+      setConflictDetected(false);
+      setShowRejectMenu(false);
       setFeedbackSubmitted(false);
       setFeedbackText('');
       setComprehensiveReport(null);
       setVerificationState('NOT_VERIFIED');
+      setInitialCodeSnapshot(code);
       initiateRemediationWorkflow();
     }
   }, [isOpen, targetFinding]);
+
+  // Update structured explanation when knowledge level changes
+  useEffect(() => {
+    if (targetFinding && fixPlan) {
+      const expl = AgenticFixEngine.generateStructuredExplanation(
+        targetFinding,
+        fixPlan,
+        unifiedPatch,
+        knowledgeLevel
+      );
+      setStructuredExplanation(expl);
+    }
+  }, [targetFinding, fixPlan, unifiedPatch, knowledgeLevel]);
 
   if (!isOpen || !targetFinding) return null;
 
@@ -151,13 +206,19 @@ export const FixModal: React.FC<FixModalProps> = ({
     // If manual fix or unsafe, stop here with clear guidance
     if (plan.fixability === 'MANUAL_FIX_REQUIRED' || plan.fixability === 'UNSAFE_TO_AUTOMATE') {
       setPhase('IDLE');
+      const expl = AgenticFixEngine.generateStructuredExplanation(
+        targetFinding,
+        plan,
+        null,
+        knowledgeLevel
+      );
+      setStructuredExplanation(expl);
       return;
     }
 
     // 2. Generate Proposed Patch
     setPhase('GENERATING_PATCH');
     try {
-      // Check if we can enhance patch via AI or deterministic engine
       let customProposedCode: string | undefined;
       try {
         const problemDesc = targetFinding.whyItMatters || targetFinding.description;
@@ -186,6 +247,9 @@ export const FixModal: React.FC<FixModalProps> = ({
         customProposedCode
       );
       setUnifiedPatch(patch);
+      if (patch.files[0]?.newContent) {
+        setEditableCode(patch.files[0].newContent);
+      }
 
       // 3. Validate Patch
       setPhase('VALIDATING_PATCH');
@@ -194,23 +258,44 @@ export const FixModal: React.FC<FixModalProps> = ({
       const validation = AgenticFixEngine.validatePatch(patch, plan, filesMap);
       setPatchValidation(validation);
 
-      // 4. Test Intelligence: Discover Tests, Gaps & Generate Candidate Tests
+      // 4. Test Intelligence
       const framework = TestIntelligenceService.detectTestFramework(code, fileName, language);
       const discTests = TestIntelligenceService.discoverTests(code, fileName, framework);
       setDiscoveredTests(discTests);
 
-      const gaps = TestIntelligenceService.detectTestGaps(code, fileName, analysis, discTests, targetFinding ? [targetFinding] : []);
+      const gaps = TestIntelligenceService.detectTestGaps(
+        code,
+        fileName,
+        analysis,
+        discTests,
+        targetFinding ? [targetFinding] : []
+      );
       setTestGaps(gaps);
 
       const coverage = TestIntelligenceService.analyzeCoverage(code, fileName, discTests);
       setCoverageTelemetry(coverage);
 
       const targetSymbolName = targetFinding.symbol || gaps[0]?.targetSymbol || 'handler';
-      const cTests = TestIntelligenceService.generateTestCandidates(targetSymbolName, fileName, code, framework, gaps[0]);
+      const cTests = TestIntelligenceService.generateTestCandidates(
+        targetSymbolName,
+        fileName,
+        code,
+        framework,
+        gaps[0]
+      );
       setCandidateTests(cTests);
       if (cTests.length > 0) {
         setSelectedCandidateTest(cTests[0]);
       }
+
+      // 5. Generate Initial Structured Explanation
+      const expl = AgenticFixEngine.generateStructuredExplanation(
+        targetFinding,
+        plan,
+        patch,
+        knowledgeLevel
+      );
+      setStructuredExplanation(expl);
 
       setPhase('IDLE');
     } catch (err: any) {
@@ -220,7 +305,13 @@ export const FixModal: React.FC<FixModalProps> = ({
   };
 
   const handleApplyAndVerify = async () => {
-    if (!unifiedPatch || !unifiedPatch.files[0] || !targetFinding) return;
+    if (!targetFinding || !fixPlan) return;
+
+    // Conflict Detection Check: verify if workspace code was modified since fix was generated
+    if (code !== initialCodeSnapshot) {
+      setConflictDetected(true);
+      return;
+    }
 
     setIsApplying(true);
     setPhase('CREATING_CHECKPOINT');
@@ -229,17 +320,20 @@ export const FixModal: React.FC<FixModalProps> = ({
     const chk = AgenticFixEngine.createCheckpoint(fileName, code);
     setCheckpointId(chk);
 
-    // 2. Apply in Workspace
+    // 2. Apply in Workspace (use editable code if developer customized it)
     setPhase('APPLYING_PATCH');
-    const patchedCode = unifiedPatch.files[0].newContent;
+    const patchedCode =
+      diffMode === 'edit' && editableCode.trim().length > 0
+        ? editableCode
+        : unifiedPatch?.files[0]?.newContent || code;
     setCode(patchedCode);
 
     // 3. Run Multi-phase Verification Pipeline via VerificationService
     setPhase('RUNNING_TESTS');
     const report = await VerificationService.executeVerificationPipeline({
       finding: targetFinding,
-      plan: fixPlan!,
-      patch: unifiedPatch,
+      plan: fixPlan,
+      patch: unifiedPatch || AgenticFixEngine.generateUnifiedPatch(fixPlan, targetFinding, code, fileName, patchedCode),
       patchedCode,
       originalCode: code,
       fileName,
@@ -264,8 +358,8 @@ export const FixModal: React.FC<FixModalProps> = ({
       findingCategory: targetFinding.category,
       findingSeverity: targetFinding.severity,
       timestamp: Date.now(),
-      plan: fixPlan!,
-      patch: unifiedPatch,
+      plan: fixPlan,
+      patch: unifiedPatch!,
       validation: patchValidation!,
       testResults: report.testResult,
       securityResults: report.securityResult,
@@ -291,14 +385,15 @@ export const FixModal: React.FC<FixModalProps> = ({
   };
 
   const handleRetryVerification = async () => {
-    if (!unifiedPatch || !targetFinding || !fixPlan) return;
+    if (!targetFinding || !fixPlan) return;
     setIsVerifying(true);
     try {
+      const activeCode = unifiedPatch?.files[0]?.newContent || code;
       const report = await VerificationService.executeVerificationPipeline({
         finding: targetFinding,
         plan: fixPlan,
-        patch: unifiedPatch,
-        patchedCode: unifiedPatch.files[0]?.newContent || code,
+        patch: unifiedPatch!,
+        patchedCode: activeCode,
         originalCode: code,
         fileName,
         language,
@@ -320,13 +415,23 @@ export const FixModal: React.FC<FixModalProps> = ({
   const handleAcceptFix = () => {
     if (!isApplied || !targetFinding) return;
     // Strict Gate: Verification must NOT be FAILED and must be approved by decision engine
-    if (verificationState === 'FAILED' || (comprehensiveReport && !comprehensiveReport.decision.canMarkAsFixed)) {
+    if (
+      verificationState === 'FAILED' ||
+      (comprehensiveReport && !comprehensiveReport.decision.canMarkAsFixed)
+    ) {
       return;
     }
 
     saveFindingStatus(targetFinding.id, 'FIXED');
     if (onVerifiedFixApplied) {
       onVerifiedFixApplied(targetFinding.id);
+    }
+    if (addToast) {
+      addToast({
+        title: 'Fix Accepted & Verified',
+        message: `Finding "${targetFinding.title}" marked as Fixed in codebase.`,
+        type: 'success',
+      });
     }
     onClose();
   };
@@ -340,7 +445,48 @@ export const FixModal: React.FC<FixModalProps> = ({
       setVerificationState('NOT_VERIFIED');
       setComprehensiveReport(null);
       analyzeCurrentCode();
+      if (addToast) {
+        addToast({
+          title: 'Rollback Succeeded',
+          message: `Workspace reverted to pre-fix checkpoint for ${fileName}.`,
+          type: 'info',
+        });
+      }
     }
+  };
+
+  const handleRejectFix = () => {
+    if (!targetFinding || !fixPlan) return;
+    const auditRecord: RemediationAuditRecord = {
+      id: `audit-reject-${Date.now()}`,
+      findingId: targetFinding.id,
+      findingTitle: targetFinding.title,
+      findingCategory: targetFinding.category,
+      findingSeverity: targetFinding.severity,
+      timestamp: Date.now(),
+      plan: fixPlan,
+      patch: unifiedPatch!,
+      validation: patchValidation!,
+      testResults: null,
+      securityResults: null,
+      regressionResults: null,
+      verificationState: 'REJECTED',
+      finalStatus: 'REJECTED',
+      developerFeedback: {
+        useful: false,
+        rejectionReason: `${rejectionReason}: ${rejectionNotes}`,
+        timestamp: Date.now(),
+      },
+    };
+    AgenticFixEngine.recordRemediationAudit(auditRecord);
+    if (addToast) {
+      addToast({
+        title: 'Fix Rejected',
+        message: 'Rejection reason recorded to audit log. Workspace untouched.',
+        type: 'warning',
+      });
+    }
+    onClose();
   };
 
   const handleCopyDiff = () => {
@@ -353,6 +499,90 @@ export const FixModal: React.FC<FixModalProps> = ({
 
   const submitFeedback = (useful: boolean) => {
     setFeedbackSubmitted(true);
+    if (targetFinding && fixPlan) {
+      const record: RemediationAuditRecord = {
+        id: `audit-fb-${Date.now()}`,
+        findingId: targetFinding.id,
+        findingTitle: targetFinding.title,
+        findingCategory: targetFinding.category,
+        findingSeverity: targetFinding.severity,
+        timestamp: Date.now(),
+        plan: fixPlan,
+        patch: unifiedPatch!,
+        validation: patchValidation!,
+        testResults: testResults,
+        securityResults: securityResults,
+        regressionResults: regressionResults,
+        verificationState,
+        finalStatus: isApplied ? 'VERIFIED' : 'PLAN_ONLY',
+        developerFeedback: {
+          useful,
+          comment: feedbackText,
+          timestamp: Date.now(),
+        },
+      };
+      AgenticFixEngine.recordRemediationAudit(record);
+    }
+  };
+
+  // Run QA Scenarios for testing and demonstrations
+  const runQaScenario = async (scenario: string) => {
+    setActiveSimulationScenario(scenario);
+    if (scenario === 'CONFLICT') {
+      setConflictDetected(true);
+      return;
+    }
+    if (scenario === 'REJECT') {
+      setShowRejectMenu(true);
+      return;
+    }
+    if (scenario === 'FAIL_TEST') {
+      if (!isApplied) {
+        await handleApplyAndVerify();
+      }
+      setVerificationState('FAILED');
+      setComprehensiveReport((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          overallStatus: 'FAILED',
+          decision: {
+            ...prev.decision,
+            canMarkAsFixed: false,
+            failedStages: ['Runtime Test Suite (Assertion Error)'],
+            recommendation: 'Fix introduced a regression. Roll back to safe checkpoint.',
+          },
+        };
+      });
+      setActiveSubTab('verification');
+      return;
+    }
+    if (scenario === 'SYNTAX_ERROR') {
+      if (!isApplied) {
+        await handleApplyAndVerify();
+      }
+      setVerificationState('FAILED');
+      setComprehensiveReport((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          overallStatus: 'FAILED',
+          decision: {
+            ...prev.decision,
+            canMarkAsFixed: false,
+            failedStages: ['Static Syntax & AST Validation (Parse Error)'],
+            recommendation: 'Syntax error detected. Recommend atomic rollback.',
+          },
+        };
+      });
+      setActiveSubTab('verification');
+      return;
+    }
+    if (scenario === 'CLEAN_PASS') {
+      await handleApplyAndVerify();
+      setVerificationState('VERIFIED');
+      setActiveSubTab('verification');
+    }
   };
 
   const canAcceptFix =
@@ -376,23 +606,38 @@ export const FixModal: React.FC<FixModalProps> = ({
       ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
       : 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30';
 
+  // 9-Stage Stepper mapping
+  const workflowStages = [
+    { num: 1, label: 'FIND', done: true },
+    { num: 2, label: 'UNDERSTAND', done: Boolean(structuredExplanation) },
+    { num: 3, label: 'PLAN', done: Boolean(fixPlan) },
+    { num: 4, label: 'GENERATE FIX', done: Boolean(unifiedPatch) },
+    { num: 5, label: 'REVIEW', done: activeSubTab === 'diff' || isApplied },
+    { num: 6, label: 'APPLY', done: isApplied },
+    { num: 7, label: 'TEST', done: Boolean(testResults) || isApplied },
+    { num: 8, label: 'RE-ANALYZE', done: Boolean(comprehensiveReport?.beforeAfter) },
+    { num: 9, label: 'VERIFY', done: verificationState === 'VERIFIED' || verificationState === 'PARTIALLY_VERIFIED' },
+  ];
+
   return (
     <div
       id="devpulse-agentic-fix-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-md animate-fadeIn"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn"
       role="dialog"
       aria-modal="true"
     >
-      <div className="relative w-full max-w-4xl max-h-[92vh] flex flex-col bg-pulse-surface border border-pulse-subtle rounded-3xl shadow-2xl overflow-hidden animate-scaleUp">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-pulse-subtle bg-pulse-surface/90 gap-2">
+      <div className="relative w-full max-w-4xl max-h-[94vh] flex flex-col bg-pulse-surface border border-pulse-subtle rounded-3xl shadow-2xl overflow-hidden animate-scaleUp">
+        {/* Modal Header */}
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-pulse-subtle bg-pulse-surface/90 gap-2">
           <div className="flex items-center space-x-2.5 sm:space-x-3 min-w-0">
             <div className="p-2 sm:p-2.5 rounded-2xl bg-teal-500/15 border border-teal-500/30 text-teal-400 shrink-0">
               <Sparkles className="h-4 w-4 sm:h-5 sm:w-5" />
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-1.5">
-                <h2 className="text-sm sm:text-base font-bold text-pulse-primary truncate">Agentic Fix & Patch</h2>
+                <h2 className="text-sm sm:text-base font-bold text-pulse-primary truncate">
+                  Agentic Code Remediation & Verification
+                </h2>
                 <span className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase border ${severityBadge}`}>
                   {targetFinding.severity}
                 </span>
@@ -418,72 +663,172 @@ export const FixModal: React.FC<FixModalProps> = ({
           </button>
         </div>
 
+        {/* 9-Stage Agentic Stepper Indicator */}
+        <div className="px-3 sm:px-6 py-2.5 bg-pulse-elevated/60 border-b border-pulse-subtle flex items-center justify-between text-[10px] font-mono overflow-x-auto [scrollbar-width:none]">
+          <div className="flex items-center space-x-1.5 shrink-0">
+            {workflowStages.map((st, idx) => (
+              <React.Fragment key={st.num}>
+                <div
+                  className={`flex items-center space-x-1 px-2 py-1 rounded-lg transition ${
+                    st.done
+                      ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                      : 'bg-pulse-surface text-pulse-muted border border-pulse-subtle'
+                  }`}
+                >
+                  <span className="font-bold">{st.num}.</span>
+                  <span className="font-semibold">{st.label}</span>
+                  {st.done && <Check className="h-3 w-3 text-emerald-400 shrink-0" />}
+                </div>
+                {idx < workflowStages.length - 1 && (
+                  <ArrowRight className="h-3 w-3 text-pulse-subtle shrink-0" />
+                )}
+              </React.Fragment>
+            ))}
+          </div>
+
+          {/* QA Simulation Scenarios Selector */}
+          <div className="hidden lg:flex items-center space-x-1.5 pl-3 border-l border-pulse-subtle shrink-0">
+            <span className="text-pulse-muted flex items-center space-x-1">
+              <FlaskConical className="h-3 w-3 text-teal-400" />
+              <span>QA Sim:</span>
+            </span>
+            <select
+              value={activeSimulationScenario}
+              onChange={(e) => runQaScenario(e.target.value)}
+              className="bg-pulse-surface border border-pulse-subtle text-pulse-secondary text-[10px] rounded-lg px-2 py-0.5 focus:outline-none focus:border-teal-500"
+            >
+              <option value="DEFAULT">Normal Workflow</option>
+              <option value="CLEAN_PASS">1. Simple Clean Pass</option>
+              <option value="SYNTAX_ERROR">2. Syntax Parse Failure</option>
+              <option value="FAIL_TEST">3. Test Regression Failure</option>
+              <option value="CONFLICT">4. Source Changed Conflict</option>
+              <option value="REJECT">5. User Rejection Flow</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Source Conflict Alert Banner */}
+        {conflictDetected && (
+          <div className="m-3 sm:m-6 p-4 rounded-2xl bg-amber-500/15 border border-amber-500/30 space-y-2.5 text-xs text-amber-300">
+            <div className="flex items-center space-x-2 font-bold text-amber-400">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>Source Conflict Detected: Active File Modified</span>
+            </div>
+            <p className="leading-relaxed">
+              Fix could not be applied automatically because the source file (<strong>{fileName}</strong>) was modified since the remediation patch was generated.
+            </p>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                onClick={() => {
+                  setConflictDetected(false);
+                  setInitialCodeSnapshot(code);
+                  initiateRemediationWorkflow();
+                }}
+                className="px-3 py-1.5 rounded-xl bg-amber-500/25 hover:bg-amber-500/35 text-amber-200 border border-amber-500/40 font-bold transition flex items-center space-x-1.5 cursor-pointer"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                <span>Regenerate Fix on Current Code</span>
+              </button>
+              <button
+                onClick={() => setConflictDetected(false)}
+                className="px-3 py-1.5 rounded-xl bg-pulse-surface hover:bg-pulse-elevated text-pulse-secondary border border-pulse-subtle transition cursor-pointer"
+              >
+                Dismiss Conflict Alert
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Tab Navigation */}
-        <div className="flex items-center space-x-1.5 sm:space-x-2 px-3 sm:px-6 pt-2.5 pb-2 border-b border-pulse-subtle bg-pulse-surface text-xs font-mono overflow-x-auto [scrollbar-width:none]">
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('plan')}
-            className={`px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center space-x-1.5 shrink-0 whitespace-nowrap min-h-[36px] ${
-              activeSubTab === 'plan'
-                ? 'bg-teal-500 text-[#08110F] font-bold shadow-sm'
-                : 'text-pulse-secondary hover:text-pulse-primary hover:bg-pulse-elevated'
-            }`}
-          >
-            <Layers className="h-3.5 w-3.5 shrink-0" />
-            <span>1. Fix Plan</span>
-          </button>
+        <div className="flex items-center justify-between px-3 sm:px-6 pt-2.5 pb-2 border-b border-pulse-subtle bg-pulse-surface text-xs font-mono overflow-x-auto [scrollbar-width:none]">
+          <div className="flex items-center space-x-1.5 sm:space-x-2">
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('plan')}
+              className={`px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center space-x-1.5 shrink-0 whitespace-nowrap min-h-[36px] ${
+                activeSubTab === 'plan'
+                  ? 'bg-teal-500 text-[#08110F] font-bold shadow-sm'
+                  : 'text-pulse-secondary hover:text-pulse-primary hover:bg-pulse-elevated'
+              }`}
+            >
+              <Layers className="h-3.5 w-3.5 shrink-0" />
+              <span>1. Plan & Understand</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('diff')}
-            className={`px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center space-x-1.5 shrink-0 whitespace-nowrap min-h-[36px] ${
-              activeSubTab === 'diff'
-                ? 'bg-teal-500 text-[#08110F] font-bold shadow-sm'
-                : 'text-pulse-secondary hover:text-pulse-primary hover:bg-pulse-elevated'
-            }`}
-          >
-            <GitPullRequest className="h-3.5 w-3.5 shrink-0" />
-            <span>2. Proposed Patch {unifiedPatch ? `(+${unifiedPatch.totalAdditions} / -${unifiedPatch.totalDeletions})` : ''}</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('diff')}
+              className={`px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center space-x-1.5 shrink-0 whitespace-nowrap min-h-[36px] ${
+                activeSubTab === 'diff'
+                  ? 'bg-teal-500 text-[#08110F] font-bold shadow-sm'
+                  : 'text-pulse-secondary hover:text-pulse-primary hover:bg-pulse-elevated'
+              }`}
+            >
+              <GitPullRequest className="h-3.5 w-3.5 shrink-0" />
+              <span>2. Proposed Patch {unifiedPatch ? `(+${unifiedPatch.totalAdditions} / -${unifiedPatch.totalDeletions})` : ''}</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('tests')}
-            className={`px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center space-x-1.5 shrink-0 whitespace-nowrap min-h-[36px] ${
-              activeSubTab === 'tests'
-                ? 'bg-teal-500 text-[#08110F] font-bold shadow-sm'
-                : 'text-pulse-secondary hover:text-pulse-primary hover:bg-pulse-elevated'
-            }`}
-          >
-            <TestTube2 className="h-3.5 w-3.5 shrink-0" />
-            <span>3. Test Intelligence {candidateTests.length > 0 ? `(${candidateTests.length})` : ''}</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('tests')}
+              className={`px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center space-x-1.5 shrink-0 whitespace-nowrap min-h-[36px] ${
+                activeSubTab === 'tests'
+                  ? 'bg-teal-500 text-[#08110F] font-bold shadow-sm'
+                  : 'text-pulse-secondary hover:text-pulse-primary hover:bg-pulse-elevated'
+              }`}
+            >
+              <TestTube2 className="h-3.5 w-3.5 shrink-0" />
+              <span>3. Test Intelligence {candidateTests.length > 0 ? `(${candidateTests.length})` : ''}</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('verification')}
-            className={`px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center space-x-1.5 shrink-0 whitespace-nowrap min-h-[36px] ${
-              activeSubTab === 'verification'
-                ? 'bg-teal-500 text-[#08110F] font-bold shadow-sm'
-                : 'text-pulse-secondary hover:text-pulse-primary hover:bg-pulse-elevated'
-            }`}
-          >
-            <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
-            <span>4. Verification {verificationState === 'VERIFIED' ? '✓' : ''}</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('verification')}
+              className={`px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center space-x-1.5 shrink-0 whitespace-nowrap min-h-[36px] ${
+                activeSubTab === 'verification'
+                  ? 'bg-teal-500 text-[#08110F] font-bold shadow-sm'
+                  : 'text-pulse-secondary hover:text-pulse-primary hover:bg-pulse-elevated'
+              }`}
+            >
+              <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
+              <span>4. Verification {verificationState === 'VERIFIED' ? '✓' : ''}</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('feedback')}
-            className={`px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center space-x-1.5 shrink-0 whitespace-nowrap min-h-[36px] ${
-              activeSubTab === 'feedback'
-                ? 'bg-teal-500 text-[#08110F] font-bold shadow-sm'
-                : 'text-pulse-secondary hover:text-pulse-primary hover:bg-pulse-elevated'
-            }`}
-          >
-            <ThumbsUp className="h-3.5 w-3.5 shrink-0" />
-            <span>5. Audit & Feedback</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('feedback')}
+              className={`px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center space-x-1.5 shrink-0 whitespace-nowrap min-h-[36px] ${
+                activeSubTab === 'feedback'
+                  ? 'bg-teal-500 text-[#08110F] font-bold shadow-sm'
+                  : 'text-pulse-secondary hover:text-pulse-primary hover:bg-pulse-elevated'
+              }`}
+            >
+              <ThumbsUp className="h-3.5 w-3.5 shrink-0" />
+              <span>5. Audit Trail</span>
+            </button>
+          </div>
+
+          {/* Level Switcher */}
+          {activeSubTab === 'plan' && (
+            <div className="hidden sm:flex items-center space-x-1 pl-2 border-l border-pulse-subtle">
+              <GraduationCap className="h-3.5 w-3.5 text-teal-400" />
+              <div className="flex bg-pulse-surface rounded-lg p-0.5 border border-pulse-subtle text-[10px]">
+                {(['beginner', 'intermediate', 'expert'] as KnowledgeLevel[]).map((lvl) => (
+                  <button
+                    key={lvl}
+                    onClick={() => setKnowledgeLevel(lvl)}
+                    className={`px-2 py-0.5 rounded capitalize transition ${
+                      knowledgeLevel === lvl
+                        ? 'bg-teal-500/20 text-teal-300 font-bold'
+                        : 'text-pulse-muted hover:text-pulse-secondary'
+                    }`}
+                  >
+                    {lvl}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Modal Body */}
@@ -507,7 +852,7 @@ export const FixModal: React.FC<FixModalProps> = ({
             </div>
           )}
 
-          {/* TAB 1: FIX PLAN */}
+          {/* TAB 1: FIX PLAN & STRUCTURED EXPLANATION */}
           {activeSubTab === 'plan' && (
             fixPlan ? (
               <div className="space-y-5 animate-fadeIn">
@@ -529,6 +874,78 @@ export const FixModal: React.FC<FixModalProps> = ({
                     <strong className="text-pulse-primary">Root Cause:</strong> {fixPlan.rootCauseSummary || 'Structural code pattern violation.'}
                   </p>
                 </div>
+
+                {/* 5-Section Structured Explanation */}
+                {structuredExplanation && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-mono uppercase font-bold text-pulse-muted flex items-center space-x-1.5">
+                        <Info className="h-3.5 w-3.5 text-teal-400" />
+                        <span>Structured Rationale ({knowledgeLevel} Mode)</span>
+                      </h4>
+                      <span className="text-[11px] font-mono text-pulse-muted">
+                        5-Dimensional Analysis
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                      {/* 1. Why this fix is needed */}
+                      <div className="p-3.5 rounded-2xl bg-pulse-elevated border border-pulse-subtle space-y-1.5">
+                        <span className="font-bold text-pulse-primary flex items-center space-x-1.5">
+                          <AlertCircle className="h-3.5 w-3.5 text-amber-400" />
+                          <span>1. Why This Fix Is Needed</span>
+                        </span>
+                        <p className="text-pulse-secondary leading-relaxed text-[11px]">
+                          {structuredExplanation.whyNeeded}
+                        </p>
+                      </div>
+
+                      {/* 2. What changes */}
+                      <div className="p-3.5 rounded-2xl bg-pulse-elevated border border-pulse-subtle space-y-1.5">
+                        <span className="font-bold text-pulse-primary flex items-center space-x-1.5">
+                          <FileCode className="h-3.5 w-3.5 text-teal-400" />
+                          <span>2. What Changes</span>
+                        </span>
+                        <p className="text-pulse-secondary leading-relaxed text-[11px]">
+                          {structuredExplanation.whatChanges}
+                        </p>
+                      </div>
+
+                      {/* 3. Why this approach was chosen */}
+                      <div className="p-3.5 rounded-2xl bg-pulse-elevated border border-pulse-subtle space-y-1.5">
+                        <span className="font-bold text-pulse-primary flex items-center space-x-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                          <span>3. Why This Approach</span>
+                        </span>
+                        <p className="text-pulse-secondary leading-relaxed text-[11px]">
+                          {structuredExplanation.whyThisApproach}
+                        </p>
+                      </div>
+
+                      {/* 4. Potential side effects / blast radius */}
+                      <div className="p-3.5 rounded-2xl bg-pulse-elevated border border-pulse-subtle space-y-1.5">
+                        <span className="font-bold text-pulse-primary flex items-center space-x-1.5">
+                          <ShieldAlert className="h-3.5 w-3.5 text-sky-400" />
+                          <span>4. Potential Side Effects</span>
+                        </span>
+                        <p className="text-pulse-secondary leading-relaxed text-[11px]">
+                          {structuredExplanation.potentialSideEffects}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* 5. How it will be verified */}
+                    <div className="p-3.5 rounded-2xl bg-pulse-elevated border border-pulse-subtle space-y-1.5 text-xs">
+                      <span className="font-bold text-pulse-primary flex items-center space-x-1.5">
+                        <CheckCheck className="h-3.5 w-3.5 text-emerald-400" />
+                        <span>5. How It Will Be Verified</span>
+                      </span>
+                      <p className="text-pulse-secondary leading-relaxed text-[11px]">
+                        {structuredExplanation.howVerified}
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Fixability Guidance if Manual or Unsafe */}
                 {fixPlan.manualGuidance && (
@@ -572,41 +989,6 @@ export const FixModal: React.FC<FixModalProps> = ({
                     </div>
                   )}
                 </div>
-
-                {/* Risks & Impact Metadata */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="p-3.5 rounded-2xl bg-pulse-elevated border border-pulse-subtle space-y-1.5 text-xs">
-                    <span className="text-[10px] font-mono uppercase text-pulse-muted">Tests to Execute</span>
-                    {fixPlan.testsToRun && fixPlan.testsToRun.length > 0 ? (
-                      <ul className="space-y-1">
-                        {fixPlan.testsToRun.map((t, idx) => (
-                          <li key={idx} className="flex items-center space-x-1.5 text-pulse-secondary font-mono text-[11px]">
-                            <TestTube2 className="h-3 w-3 text-teal-400" />
-                            <span>{t}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-[11px] text-pulse-muted">No specific test executions required.</p>
-                    )}
-                  </div>
-
-                  <div className="p-3.5 rounded-2xl bg-pulse-elevated border border-pulse-subtle space-y-1.5 text-xs">
-                    <span className="text-[10px] font-mono uppercase text-pulse-muted">Security Checks</span>
-                    {fixPlan.securityChecks && fixPlan.securityChecks.length > 0 ? (
-                      <ul className="space-y-1">
-                        {fixPlan.securityChecks.map((sc, idx) => (
-                          <li key={idx} className="flex items-center space-x-1.5 text-pulse-secondary font-mono text-[11px]">
-                            <ShieldCheck className="h-3 w-3 text-emerald-400" />
-                            <span>{sc}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-[11px] text-pulse-muted">No specific security checks configured.</p>
-                    )}
-                  </div>
-                </div>
               </div>
             ) : (
               <div className="p-6 rounded-2xl bg-pulse-elevated border border-pulse-subtle text-center sm:text-left space-y-1.5">
@@ -621,7 +1003,7 @@ export const FixModal: React.FC<FixModalProps> = ({
             )
           )}
 
-          {/* TAB 2: PROPOSED PATCH / DIFF */}
+          {/* TAB 2: PROPOSED PATCH / DIFF / EDIT */}
           {activeSubTab === 'diff' && (
             <div className="space-y-4 animate-fadeIn">
               {unifiedPatch ? (
@@ -635,16 +1017,53 @@ export const FixModal: React.FC<FixModalProps> = ({
                       <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 font-bold">
                         -{unifiedPatch.totalDeletions}
                       </span>
-                      <span className="text-pulse-muted truncate max-w-[200px] sm:max-w-none">File: {unifiedPatch.files[0]?.filePath}</span>
+                      <span className="text-pulse-muted truncate max-w-[200px] sm:max-w-none">
+                        File: {unifiedPatch.files[0]?.filePath}
+                      </span>
                     </div>
 
                     <div className="flex items-center space-x-2">
+                      {/* Diff View Mode Switcher */}
+                      <div className="flex bg-pulse-surface rounded-xl p-0.5 border border-pulse-subtle text-xs font-mono">
+                        <button
+                          onClick={() => setDiffMode('unified')}
+                          className={`px-2.5 py-1 rounded-lg transition ${
+                            diffMode === 'unified'
+                              ? 'bg-pulse-elevated text-teal-300 font-bold'
+                              : 'text-pulse-muted hover:text-pulse-secondary'
+                          }`}
+                        >
+                          Unified Diff
+                        </button>
+                        <button
+                          onClick={() => setDiffMode('split')}
+                          className={`px-2.5 py-1 rounded-lg transition ${
+                            diffMode === 'split'
+                              ? 'bg-pulse-elevated text-teal-300 font-bold'
+                              : 'text-pulse-muted hover:text-pulse-secondary'
+                          }`}
+                        >
+                          Split Diff
+                        </button>
+                        <button
+                          onClick={() => setDiffMode('edit')}
+                          className={`px-2.5 py-1 rounded-lg transition flex items-center space-x-1 ${
+                            diffMode === 'edit'
+                              ? 'bg-teal-500/20 text-teal-300 font-bold border border-teal-500/30'
+                              : 'text-pulse-muted hover:text-pulse-secondary'
+                          }`}
+                        >
+                          <FileEdit className="h-3 w-3" />
+                          <span>Edit Patch</span>
+                        </button>
+                      </div>
+
                       <button
                         onClick={handleCopyDiff}
                         className="px-2.5 py-1 rounded-lg bg-pulse-surface hover:bg-pulse-elevated border border-pulse-subtle text-xs text-pulse-secondary hover:text-pulse-primary transition flex items-center space-x-1 cursor-pointer"
                       >
                         {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-                        <span>{copied ? 'Copied Diff' : 'Copy Unified Diff'}</span>
+                        <span>{copied ? 'Copied' : 'Copy'}</span>
                       </button>
                     </div>
                   </div>
@@ -672,29 +1091,69 @@ export const FixModal: React.FC<FixModalProps> = ({
                     </div>
                   )}
 
-                  {/* Diff Viewer */}
-                  <div className="rounded-2xl bg-pulse-bg border border-pulse-subtle overflow-hidden font-mono text-xs">
-                    <div className="px-4 py-2 bg-pulse-surface border-b border-pulse-subtle flex items-center justify-between text-pulse-muted text-[11px]">
-                      <span>Unified Diff: a/{fileName} → b/{fileName}</span>
-                      <span>Hunk 1</span>
+                  {/* MODE 1: UNIFIED DIFF */}
+                  {diffMode === 'unified' && (
+                    <div className="rounded-2xl bg-pulse-bg border border-pulse-subtle overflow-hidden font-mono text-xs">
+                      <div className="px-4 py-2 bg-pulse-surface border-b border-pulse-subtle flex items-center justify-between text-pulse-muted text-[11px]">
+                        <span>Unified Diff: a/{fileName} → b/{fileName}</span>
+                        <span>Hunk 1</span>
+                      </div>
+                      <pre className="p-4 overflow-x-auto max-h-80 leading-relaxed">
+                        {unifiedPatch.files[0]?.hunks[0]?.lines.map((l, i) => (
+                          <div
+                            key={i}
+                            className={`${
+                              l.startsWith('+')
+                                ? 'bg-emerald-500/15 text-emerald-400 px-1 rounded'
+                                : l.startsWith('-')
+                                ? 'bg-rose-500/15 text-rose-400 px-1 rounded'
+                                : 'text-pulse-secondary'
+                            }`}
+                          >
+                            {l}
+                          </div>
+                        ))}
+                      </pre>
                     </div>
-                    <pre className="p-4 overflow-x-auto max-h-80 leading-relaxed">
-                      {unifiedPatch.files[0]?.hunks[0]?.lines.map((l, i) => (
-                        <div
-                          key={i}
-                          className={`${
-                            l.startsWith('+')
-                              ? 'bg-emerald-500/15 text-emerald-400 px-1 rounded'
-                              : l.startsWith('-')
-                              ? 'bg-rose-500/15 text-rose-400 px-1 rounded'
-                              : 'text-pulse-secondary'
-                          }`}
-                        >
-                          {l}
+                  )}
+
+                  {/* MODE 2: SPLIT DIFF (SIDE BY SIDE) */}
+                  {diffMode === 'split' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 rounded-2xl bg-pulse-bg border border-pulse-subtle p-3 font-mono text-xs max-h-80 overflow-y-auto">
+                      <div className="space-y-1">
+                        <div className="text-[11px] font-bold text-rose-400 px-2 py-1 bg-rose-500/10 rounded-lg">
+                          Original ({fileName})
                         </div>
-                      ))}
-                    </pre>
-                  </div>
+                        <pre className="p-2 text-pulse-secondary overflow-x-auto text-[11px] leading-relaxed">
+                          {code}
+                        </pre>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="text-[11px] font-bold text-emerald-400 px-2 py-1 bg-emerald-500/10 rounded-lg">
+                          Proposed Remediated ({fileName})
+                        </div>
+                        <pre className="p-2 text-emerald-300 overflow-x-auto text-[11px] leading-relaxed">
+                          {unifiedPatch.files[0]?.newContent}
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* MODE 3: EDIT PATCH BEFORE APPLY */}
+                  {diffMode === 'edit' && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs text-pulse-muted">
+                        <span>Fine-tune the proposed code before applying to workspace:</span>
+                        <span className="font-mono text-teal-400">{fileName}</span>
+                      </div>
+                      <textarea
+                        value={editableCode}
+                        onChange={(e) => setEditableCode(e.target.value)}
+                        className="w-full h-72 p-3 font-mono text-xs bg-pulse-bg border border-pulse-subtle rounded-2xl text-pulse-primary focus:outline-none focus:border-teal-500 leading-relaxed resize-none"
+                        placeholder="Edit remediated source code..."
+                      />
+                    </div>
+                  )}
                 </>
               ) : (
                 <div className="p-6 rounded-2xl bg-pulse-elevated border border-pulse-subtle text-center sm:text-left space-y-1.5">
@@ -850,43 +1309,6 @@ export const FixModal: React.FC<FixModalProps> = ({
                   </div>
                 )}
               </div>
-
-              {/* Test Gaps Detected */}
-              {testGaps.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="text-xs font-mono uppercase font-bold text-pulse-muted flex items-center space-x-1.5">
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
-                    <span>Identified Test Gaps in Module ({testGaps.length})</span>
-                  </h4>
-                  <div className="space-y-2">
-                    {testGaps.map((gap) => (
-                      <div
-                        key={gap.id}
-                        className="p-3 rounded-xl bg-pulse-elevated border border-pulse-subtle space-y-1 text-xs"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
-                            <span
-                              className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase ${
-                                gap.priority === 'CRITICAL'
-                                  ? 'bg-rose-500/20 text-rose-400'
-                                  : gap.priority === 'HIGH'
-                                  ? 'bg-amber-500/20 text-amber-400'
-                                  : 'bg-teal-500/20 text-teal-400'
-                              }`}
-                            >
-                              {gap.priority}
-                            </span>
-                            <span className="font-bold text-pulse-primary">{gap.title}</span>
-                          </div>
-                          <span className="text-[10px] font-mono text-pulse-muted">Line {gap.line}</span>
-                        </div>
-                        <p className="text-pulse-secondary text-[11px]">{gap.missingBehavior}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
@@ -924,9 +1346,9 @@ export const FixModal: React.FC<FixModalProps> = ({
                       {verificationState === 'NOT_VERIFIED' && <Activity className="h-5 w-5 text-pulse-muted" />}
                       <span>
                         {verificationState === 'VERIFIED'
-                          ? 'VERIFIED (Full Execution)'
+                          ? 'VERIFIED (Full Pipeline Succeeded)'
                           : verificationState === 'PARTIALLY_VERIFIED'
-                          ? 'PARTIALLY VERIFIED (Simulated Test Runner)'
+                          ? 'PARTIALLY VERIFIED (Simulated Harness)'
                           : verificationState === 'FAILED'
                           ? 'VERIFICATION FAILED'
                           : 'NOT VERIFIED'}
@@ -936,7 +1358,7 @@ export const FixModal: React.FC<FixModalProps> = ({
                       {comprehensiveReport
                         ? VerificationService.getPersonalizedExplanation(
                             comprehensiveReport,
-                            personalizationProfile.knowledge_level
+                            knowledgeLevel
                           )
                         : isApplied
                         ? 'Verification suite executed.'
@@ -964,16 +1386,6 @@ export const FixModal: React.FC<FixModalProps> = ({
                     </div>
                   )}
                 </div>
-
-                {/* Simulation Transparency Banner */}
-                {comprehensiveReport?.isSimulated && (
-                  <div className="mt-3 pt-3 border-t border-amber-500/20 text-[11px] text-amber-300/90 flex items-start space-x-2">
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
-                    <span>
-                      <strong>Execution Transparency:</strong> Runtime execution is evaluated inside the browser isolated test harness. Static analysis, AST re-scanning, and security checks were performed with real AST parsers.
-                    </span>
-                  </div>
-                )}
               </div>
 
               {/* Gating Alert if Verification Failed */}
@@ -986,7 +1398,7 @@ export const FixModal: React.FC<FixModalProps> = ({
                   <p>
                     Verification failed due to:{' '}
                     <strong>{comprehensiveReport.decision.failedStages.join(', ') || 'Validation errors'}</strong>.{' '}
-                    DevPulse prevents marking findings as Fixed until verification checks succeed.
+                    DevPulse prevents marking findings as Fixed until all safety checks pass cleanly.
                   </p>
                   <div className="flex items-center space-x-3 pt-1">
                     <button
@@ -1087,7 +1499,7 @@ export const FixModal: React.FC<FixModalProps> = ({
               {/* 5-Stage Verification Pipeline Breakdown */}
               <div className="space-y-3">
                 <h4 className="text-xs font-bold text-pulse-primary font-mono uppercase flex items-center justify-between">
-                  <span>Verification Stages Breakdown</span>
+                  <span>5-Stage Verification Pipeline Breakdown</span>
                   {comprehensiveReport && (
                     <span className="text-pulse-muted font-normal text-[11px]">
                       Total Duration: {comprehensiveReport.totalDurationMs}ms
@@ -1163,7 +1575,6 @@ export const FixModal: React.FC<FixModalProps> = ({
                       );
                     })
                   ) : (
-                    /* Fallback default card when not yet executed */
                     <div className="p-6 rounded-2xl bg-pulse-elevated border border-pulse-subtle text-center text-xs text-pulse-muted space-y-2">
                       <Layers className="h-6 w-6 text-pulse-muted mx-auto" />
                       <p>Verification pipeline has not been executed yet.</p>
@@ -1248,6 +1659,65 @@ export const FixModal: React.FC<FixModalProps> = ({
           )}
         </div>
 
+        {/* Reject Fix Dropdown Modal / View */}
+        {showRejectMenu && (
+          <div className="p-4 border-t border-rose-500/30 bg-rose-500/10 space-y-3 text-xs">
+            <div className="flex items-center justify-between font-bold text-rose-400">
+              <span className="flex items-center space-x-1.5">
+                <Ban className="h-4 w-4" />
+                <span>Reject Proposed Remediation</span>
+              </span>
+              <button
+                onClick={() => setShowRejectMenu(false)}
+                className="text-pulse-muted hover:text-pulse-primary cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {[
+                'Incorrect logic or syntax',
+                'False positive finding',
+                'Requires architectural refactoring',
+                'Prefer manual remediation',
+              ].map((reason) => (
+                <button
+                  key={reason}
+                  onClick={() => setRejectionReason(reason)}
+                  className={`p-2 rounded-xl border text-left transition cursor-pointer ${
+                    rejectionReason === reason
+                      ? 'bg-rose-500/20 border-rose-500/40 text-rose-300 font-bold'
+                      : 'bg-pulse-surface border-pulse-subtle text-pulse-secondary hover:text-pulse-primary'
+                  }`}
+                >
+                  {reason}
+                </button>
+              ))}
+            </div>
+            <input
+              type="text"
+              placeholder="Additional rejection context (optional)..."
+              value={rejectionNotes}
+              onChange={(e) => setRejectionNotes(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl bg-pulse-surface border border-pulse-subtle text-pulse-primary text-xs"
+            />
+            <div className="flex justify-end space-x-2">
+              <button
+                onClick={() => setShowRejectMenu(false)}
+                className="px-3 py-1.5 rounded-xl bg-pulse-surface text-pulse-secondary border border-pulse-subtle"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRejectFix}
+                className="px-4 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold transition cursor-pointer"
+              >
+                Confirm Rejection & Close
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Footer Actions */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 px-4 sm:px-6 py-3.5 sm:py-4 border-t border-pulse-subtle bg-pulse-surface/90">
           <div className="flex items-center space-x-2 text-xs font-mono">
@@ -1268,6 +1738,17 @@ export const FixModal: React.FC<FixModalProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2 w-full sm:w-auto">
+            {!isApplied && (
+              <button
+                type="button"
+                onClick={() => setShowRejectMenu(!showRejectMenu)}
+                className="px-3 py-2 text-xs font-semibold text-rose-400 hover:text-rose-300 rounded-xl border border-rose-500/30 hover:bg-rose-500/10 transition cursor-pointer min-h-[40px] flex items-center justify-center space-x-1"
+              >
+                <Ban className="h-3.5 w-3.5" />
+                <span>Reject</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={onClose}

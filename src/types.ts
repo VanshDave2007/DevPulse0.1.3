@@ -1026,12 +1026,28 @@ export interface SymbolResolutionResult {
 // AGENTIC REMEDIATION & VERIFICATION TYPES
 // ==========================================
 
+export type FixWorkflowState =
+  | 'PROPOSED'
+  | 'APPROVED'
+  | 'APPLIED'
+  | 'VERIFYING'
+  | 'VERIFIED'
+  | 'PARTIALLY_VERIFIED'
+  | 'FAILED'
+  | 'ROLLED_BACK'
+  | 'REJECTED';
+
 export type FixabilityStatus =
   | 'AUTO_FIX_SUPPORTED'
   | 'ASSISTED_FIX'
   | 'MANUAL_FIX_REQUIRED'
   | 'UNSAFE_TO_AUTOMATE'
-  | 'INSUFFICIENT_CONTEXT';
+  | 'INSUFFICIENT_CONTEXT'
+  | 'FIXABLE'
+  | 'PARTIALLY_FIXABLE'
+  | 'REQUIRES_MANUAL_ACTION'
+  | 'NOT_FIXABLE'
+  | 'UNKNOWN';
 
 export interface FixPlanStep {
   stepNumber: number;
@@ -1180,7 +1196,16 @@ export type VerificationState =
   | 'PARTIALLY_VERIFIED'
   | 'FAILED'
   | 'NOT_VERIFIED'
-  | 'BLOCKED';
+  | 'BLOCKED'
+  | 'REJECTED';
+
+export interface StructuredFixExplanation {
+  whyNeeded: string;
+  whatChanges: string;
+  whyThisApproach: string;
+  potentialSideEffects: string;
+  howVerified: string;
+}
 
 export interface VerificationStageResult {
   id: string;
@@ -1312,10 +1337,14 @@ export interface WorkspaceCheckpoint {
   id: string;
   timestamp: number;
   projectId: string;
+  repository?: string;
   affectedFiles: string[];
   beforeHashes: Record<string, string>;
   beforeContents: Record<string, string>;
   patchId?: string;
+  findingId?: string;
+  fixPlan?: FixPlan;
+  status?: 'CREATED' | 'APPLIED' | 'VERIFIED' | 'ROLLED_BACK' | 'FAILED';
   description: string;
 }
 
@@ -1811,4 +1840,466 @@ export interface ToastNotification {
   type?: ToastType;
   duration?: number;
 }
+
+// ----------------------------------------------------
+// CODEBASE CONTEXT GRAPH & SYMBOL RELATIONSHIPS TYPES (PROMPT 29)
+// ----------------------------------------------------
+
+export type CodeNodeType =
+  | 'REPOSITORY'
+  | 'DIRECTORY'
+  | 'FILE'
+  | 'MODULE'
+  | 'CLASS'
+  | 'FUNCTION'
+  | 'METHOD'
+  | 'VARIABLE'
+  | 'INTERFACE'
+  | 'API_ENDPOINT'
+  | 'TEST'
+  | 'DEPENDENCY'
+  | 'CONFIGURATION'
+  | 'FINDING';
+
+export type CodeRelationshipType =
+  | 'IMPORTS'
+  | 'EXPORTS'
+  | 'CALLS'
+  | 'INHERITS'
+  | 'IMPLEMENTS'
+  | 'CONTAINS'
+  | 'DEPENDS_ON'
+  | 'TESTS'
+  | 'REFERENCES'
+  | 'DEFINES'
+  | 'USES'
+  | 'EXPOSES'
+  | 'ROUTES_TO'
+  | 'AFFECTED_BY'
+  | 'RELATED_TO';
+
+export interface CodeNode {
+  id: string; // Stable identifier: e.g. "repo/src/services/payment.py::PaymentService::processPayment::FUNCTION"
+  type: CodeNodeType;
+  name: string;
+  qualifiedName: string;
+  filePath: string;
+  lineStart: number;
+  lineEnd: number;
+  language: SupportedLanguage;
+  metadata?: {
+    isExported?: boolean;
+    isAsync?: boolean;
+    isPublic?: boolean;
+    visibility?: 'public' | 'private' | 'protected';
+    parameters?: string[];
+    returnType?: string;
+    complexity?: number;
+    cognitiveComplexity?: number;
+    loc?: number;
+    docstring?: string;
+    endpointMethod?: string;
+    endpointPath?: string;
+    dependencyVersion?: string;
+    findingSeverity?: FindingSeverity;
+    findingCategory?: ActionFindingCategory;
+    testAssertionsCount?: number;
+    isSecuritySensitive?: boolean;
+    [key: string]: any;
+  };
+}
+
+export interface CodeRelationship {
+  id: string;
+  source: string; // Source CodeNode id
+  target: string; // Target CodeNode id
+  type: CodeRelationshipType;
+  line?: number;
+  evidenceSnippet?: string;
+  confidence: number; // 0 - 100
+  isDeterministic: boolean;
+  metadata?: Record<string, any>;
+}
+
+export interface CodebaseContextGraph {
+  id: string;
+  version: number;
+  updatedAt: number;
+  nodes: CodeNode[];
+  edges: CodeRelationship[];
+  fileMap: Record<string, string[]>; // filePath -> nodeIds
+  symbolIndex: Record<string, string[]>; // symbol name (lowercase) -> nodeIds
+  callGraph: {
+    callers: Record<string, string[]>; // targetNodeId -> callerNodeIds[]
+    callees: Record<string, string[]>; // sourceNodeId -> calleeNodeIds[]
+  };
+  dependencyGraph: {
+    dependents: Record<string, string[]>; // package/module -> dependent nodeIds[]
+    dependencies: Record<string, string[]>; // nodeId -> imported/required dependencyIds[]
+  };
+  testCoverageMap: Record<string, string[]>; // targetNodeId -> testNodeIds[]
+  findingMap: Record<string, string[]>; // targetNodeId -> findingIds[]
+}
+
+export interface ContextPacket {
+  question?: string;
+  targetNodes: CodeNode[];
+  relevantFiles: string[];
+  symbols: CodeNode[];
+  relationships: CodeRelationship[];
+  findings: ActionFinding[];
+  tests: DiscoveredTestCase[];
+  dependencies: Array<{ name: string; version?: string; isVulnerable?: boolean; isExternal?: boolean }>;
+  projectRules: Array<{ id: string; rule: string; source: string; confidence: string }>;
+  projectMemory: ProjectMemory[];
+  historicalContext?: {
+    auditId?: string;
+    previousFindingsCount?: number;
+    changeSummary?: string;
+    relationshipsChanged?: number;
+  };
+  evidence: string[];
+}
+
+export interface ContextQueryResult {
+  targetNode?: CodeNode;
+  callers: CodeNode[];
+  callees: CodeNode[];
+  imports: CodeNode[];
+  dependents: CodeNode[];
+  dependencies: CodeNode[];
+  tests: CodeNode[];
+  relatedFindings: ActionFinding[];
+  securityPath?: {
+    nodes: CodeNode[];
+    explanation: string;
+  };
+  architectureContext?: {
+    layer?: string;
+    incomingCoupling: number;
+    outgoingCoupling: number;
+    isBoundary: boolean;
+  };
+  blastRadiusSummary: {
+    affectedFilesCount: number;
+    affectedSymbolsCount: number;
+    affectedTestsCount: number;
+    riskLevel: ImpactRiskLevel;
+  };
+}
+
+export interface GraphDiffResult {
+  addedNodes: CodeNode[];
+  removedNodes: CodeNode[];
+  addedRelationships: CodeRelationship[];
+  removedRelationships: CodeRelationship[];
+  changedArchitecturalBoundaries: Array<{
+    node: string;
+    change: string;
+    previousTarget?: string;
+    newTarget?: string;
+  }>;
+}
+
+// ----------------------------------------------------
+// 15-LANGUAGE DEEP ENGINEERING KNOWLEDGE SYSTEM TYPES
+// ----------------------------------------------------
+
+export type ErrorClassificationType =
+  | 'SYNTAX'
+  | 'TYPE'
+  | 'COMPILE'
+  | 'RUNTIME'
+  | 'LOGIC'
+  | 'MEMORY'
+  | 'CONCURRENCY'
+  | 'DEPENDENCY'
+  | 'BUILD'
+  | 'CONFIGURATION'
+  | 'SECURITY'
+  | 'PERFORMANCE'
+  | 'DATABASE'
+  | 'NETWORK'
+  | 'TEST'
+  | 'ENVIRONMENT'
+  | 'FRAMEWORK'
+  | 'TOOLING';
+
+export type KnowledgeConfidenceLevel =
+  | 'VERIFIED'
+  | 'HIGH_CONFIDENCE'
+  | 'LIKELY'
+  | 'POSSIBLE'
+  | 'UNKNOWN';
+
+export interface LanguageSyntaxRules {
+  statementDelimiters: string;
+  blockScoping: string;
+  casingConventions: {
+    variables: string;
+    functions: string;
+    classes: string;
+    constants: string;
+  };
+  comments: {
+    singleLine: string;
+    multiLine: string;
+    docComment?: string;
+  };
+  keyRules: string[];
+}
+
+export interface LanguageTypeSystem {
+  category: 'Static' | 'Dynamic' | 'Gradual' | 'Declarative';
+  safety: 'Strong' | 'Weak' | 'Memory Safe' | 'Unsafe Capable';
+  inference: boolean;
+  typeCoercion: 'Implicit' | 'Explicit Only' | 'Strict';
+  keyDetails: string[];
+}
+
+export interface LanguageExecutionModel {
+  runtime: string;
+  compilationTarget: 'Bytecode' | 'Native Machine Code' | 'Interpreted AST' | 'Transpiled' | 'Declarative Engine';
+  modelType: string;
+  details: string[];
+}
+
+export interface LanguageMemoryModel {
+  management: 'Manual (malloc/free)' | 'Garbage Collected' | 'Ownership & Borrowing (RAII)' | 'Automatic Reference Counting (ARC)' | 'Engine Managed';
+  stackVsHeap: string;
+  garbageCollection?: string;
+  pointersOrReferences: string;
+  ownershipModel?: string;
+  details: string[];
+}
+
+export interface LanguageConcurrencyModel {
+  primitives: string[];
+  threadingModel: string;
+  asyncMechanism: string;
+  pitfalls: string[];
+}
+
+export interface LanguageStandardLibrary {
+  keyModules: Array<{
+    name: string;
+    purpose: string;
+    popularUses?: string;
+  }>;
+}
+
+export interface LanguagePackageManager {
+  name: string;
+  manifestFile: string;
+  lockFile: string;
+  installCommand: string;
+  details: string;
+}
+
+export interface LanguageCommonErrorPattern {
+  errorType: string;
+  category: ErrorClassificationType;
+  signatureOrPattern: string;
+  cause: string;
+  explanation: string;
+  fixStrategy: string;
+  preventionTip: string;
+  badExample?: string;
+  fixedExample?: string;
+  learnConceptId?: string;
+}
+
+export interface LanguageSecurityPattern {
+  vulnerability: string;
+  cweOrClass: string;
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM';
+  description: string;
+  badCode: string;
+  secureCode: string;
+  remediation: string;
+  learnConceptId?: string;
+}
+
+export interface LanguagePerformancePattern {
+  topic: string;
+  impact: 'High' | 'Medium' | 'Moderate';
+  bottleneck: string;
+  recommendation: string;
+  goodPattern: string;
+  badPattern: string;
+}
+
+export interface LanguageTestingPattern {
+  popularFrameworks: string[];
+  mockStrategies: string[];
+  exampleSnippet: string;
+}
+
+export interface LanguageAntiPattern {
+  name: string;
+  whyItHarms: string;
+  remedy: string;
+  badCode?: string;
+  goodCode?: string;
+}
+
+export interface LanguageIdiom {
+  name: string;
+  pattern: string;
+  description: string;
+  exampleSnippet: string;
+}
+
+export interface LanguageKnowledgeProfile {
+  language: SupportedLanguage;
+  name: string;
+  displayName: string;
+  icon: string;
+  color: string;
+  fileExtensions: string[];
+  paradigms: string[];
+  syntaxRules: LanguageSyntaxRules;
+  typeSystem: LanguageTypeSystem;
+  executionModel: LanguageExecutionModel;
+  memoryModel: LanguageMemoryModel;
+  concurrencyModel: LanguageConcurrencyModel;
+  standardLibrary: LanguageStandardLibrary;
+  packageManager: LanguagePackageManager;
+  buildTools: string[];
+  compilerOrInterpreter: string;
+  runtime: string;
+  commonErrors: LanguageCommonErrorPattern[];
+  debuggingStrategies: string[];
+  securityPatterns: LanguageSecurityPattern[];
+  performancePatterns: LanguagePerformancePattern[];
+  testingPatterns: LanguageTestingPattern;
+  architecturePatterns: string[];
+  antiPatterns: LanguageAntiPattern[];
+  idioms: LanguageIdiom[];
+  bestPractices: Array<{ title: string; category: string; recommendation: string }>;
+  interoperability: {
+    withOtherLanguages: string[];
+    ffiOrWasmOrApis: string;
+  };
+  versionInformation: {
+    currentLTS: string;
+    majorVersions: string[];
+    notableChanges: string;
+  };
+  documentationReferences: Array<{
+    title: string;
+    url: string;
+    category: string;
+  }>;
+}
+
+export interface ErrorAnalysisInput {
+  rawErrorText?: string;
+  sourceCode?: string;
+  fileName?: string;
+  language?: SupportedLanguage;
+  stackTrace?: string;
+  terminalOutput?: string;
+  compilerOutput?: string;
+  buildOutput?: string;
+  testOutput?: string;
+  lineNumber?: number;
+  columnNumber?: number;
+}
+
+export interface ErrorAnalysisResult {
+  id: string;
+  detectedLanguage: SupportedLanguage;
+  errorName: string;
+  errorCategory: ErrorClassificationType;
+  location?: {
+    file: string;
+    line?: number;
+    column?: number;
+    functionOrClass?: string;
+    offendingCodeSnippet?: string;
+  };
+  rootCause: string;
+  whyItHappens: string;
+  howToFix: string;
+  howToPrevent: string;
+  evidence: string[];
+  proposedFixDiff?: {
+    originalCode: string;
+    fixedCode: string;
+    hunkDiff: string;
+    explanation: string;
+  };
+  verificationMethod: {
+    type: 'COMPILER' | 'INTERPRETER' | 'TYPE_CHECKER' | 'LINTER' | 'UNIT_TESTS' | 'STATIC_ANALYSIS' | 'UNAVAILABLE';
+    commandOrMethod: string;
+    expectedOutcome: string;
+  };
+  confidence: KnowledgeConfidenceLevel;
+  confidenceRationale: string;
+  matchedKnowledgeProfile?: string;
+  learnConceptLink?: {
+    conceptId: string;
+    conceptTitle: string;
+    language: SupportedLanguage;
+    summary: string;
+  };
+  crossLanguageContext?: {
+    relatedFiles: string[];
+    interactionPath: string;
+  };
+}
+
+export interface DebuggingDiagnosis {
+  id: string;
+  language: SupportedLanguage;
+  diagnosisSummary: string;
+  rootCauseAnalysis: {
+    primaryCause: string;
+    contributingFactors: string[];
+    mechanism: string;
+  };
+  evidenceChain: Array<{
+    step: number;
+    source: string;
+    observation: string;
+    relevance: string;
+  }>;
+  proposedFix: {
+    summary: string;
+    targetFile: string;
+    targetLines: string;
+    beforeCode: string;
+    afterCode: string;
+    diffSnippet: string;
+    riskAssessment: 'LOW' | 'MEDIUM' | 'HIGH';
+    potentialSideEffects: string[];
+  };
+  verificationPlan: {
+    immediateTest: string;
+    regressionCheck: string;
+    status: 'READY_TO_TEST' | 'REQUIRES_ENV' | 'VERIFIED';
+  };
+  learningGrowth: {
+    concept: string;
+    lesson: string;
+    avoidanceRule: string;
+  };
+}
+
+export interface CrossLanguageTrace {
+  id: string;
+  title: string;
+  layers: Array<{
+    language: SupportedLanguage;
+    file: string;
+    role: 'Frontend Client' | 'API Gateway' | 'Backend Service' | 'Database Query' | 'Worker Task' | 'Shared Schema';
+    symbol?: string;
+    snippet?: string;
+    riskNote?: string;
+  }>;
+  dataFlowDescription: string;
+  vulnerabilityVectors: string[];
+}
+
 

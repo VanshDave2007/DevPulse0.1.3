@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
+  BookOpen,
   Bot,
   Boxes,
   Bug,
@@ -44,17 +45,21 @@ import {
   Zap,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { AIChatMessage } from '../types';
+import { AIChatMessage, SupportedLanguage } from '../types';
 import { useComponentPerformanceTracker } from '../hooks/usePerformanceTracker';
 import { AskCodebaseWidget } from './AskCodebaseWidget';
+import { ErrorIntelligenceWidget } from './ErrorIntelligenceWidget';
+import { LanguageKnowledgeInspectorModal } from './learning/LanguageKnowledgeInspectorModal';
+import { getLanguageKnowledgeProfile } from '../engine/learning/languageKnowledgeRegistry';
 
-type AIModeCategory = 'ALL' | 'REPO' | 'LEARN' | 'CODE' | 'DEBUG' | 'ANALYZE' | 'TEST' | 'PRACTICE';
+type AIModeCategory = 'ALL' | 'REPO' | 'ERROR_INTEL' | 'LEARN' | 'CODE' | 'DEBUG' | 'ANALYZE' | 'TEST' | 'PRACTICE';
 
 export const PulseAIView: React.FC = () => {
   useComponentPerformanceTracker('Pulse AI Assistant');
   const {
     code,
     language,
+    setLanguage,
     fileName,
     analysis,
     aiMessages,
@@ -77,7 +82,30 @@ export const PulseAIView: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState<AIModeCategory>('ALL');
   const [activeActionHint, setActiveActionHint] = useState<string | null>(null);
   const [loadingStage, setLoadingStage] = useState(0);
+  const [isKnowledgeModalOpen, setIsKnowledgeModalOpen] = useState(false);
+  const [inspectingLang, setInspectingLang] = useState<SupportedLanguage>(language || 'typescript');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const currentProfile = getLanguageKnowledgeProfile(language || 'typescript');
+
+  const ALL_15_LANGS: SupportedLanguage[] = [
+    'python',
+    'javascript',
+    'typescript',
+    'java',
+    'cpp',
+    'csharp',
+    'go',
+    'rust',
+    'kotlin',
+    'swift',
+    'php',
+    'ruby',
+    'sql',
+    'html',
+    'css',
+  ];
+
 
   const loadingStages = [
     'Parsing AST structure & metrics...',
@@ -569,21 +597,69 @@ export const PulseAIView: React.FC = () => {
         </div>
       </div>
 
+      {/* 15-Language Knowledge Hub Bar */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 p-3 rounded-2xl bg-pulse-surface border border-pulse-subtle">
+        <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
+          <span className="text-[11px] font-mono text-pulse-muted shrink-0 flex items-center gap-1">
+            <Cpu className="w-3.5 h-3.5 text-pulse-accent" />
+            <span>15-Language Engine:</span>
+          </span>
+          <div className="flex items-center gap-1 min-w-max">
+            {ALL_15_LANGS.map((langKey) => {
+              const p = getLanguageKnowledgeProfile(langKey);
+              const isActive = (language || 'typescript') === langKey;
+              return (
+                <button
+                  key={langKey}
+                  onClick={() => {
+                    if (setLanguage) setLanguage(langKey);
+                  }}
+                  className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-mono transition ${
+                    isActive
+                      ? 'bg-teal-500/20 text-teal-300 border border-teal-500/40 font-bold'
+                      : 'text-pulse-secondary hover:text-pulse-primary hover:bg-pulse-elevated'
+                  }`}
+                  title={`${p.name}: ${p.typeSystem.category} Typing, ${p.memoryModel.management}`}
+                >
+                  <span>{p.icon}</span>
+                  <span>{p.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <button
+          onClick={() => {
+            setInspectingLang(language || 'typescript');
+            setIsKnowledgeModalOpen(true);
+          }}
+          className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-pulse-elevated hover:bg-pulse-elevated-hover border border-pulse-subtle text-xs font-mono text-pulse-primary shrink-0 transition"
+        >
+          <BookOpen className="w-3.5 h-3.5 text-pulse-accent" />
+          <span>Inspect {currentProfile.name} Specs</span>
+        </button>
+      </div>
+
       {/* Progressive Disclosure Mode Categories */}
       <div className="space-y-3">
         {/* Category Tab Bar */}
         <div className="flex items-center space-x-1.5 overflow-x-auto pb-1">
-          {(['ALL', 'REPO', 'LEARN', 'CODE', 'DEBUG', 'ANALYZE', 'TEST', 'PRACTICE'] as const).map((cat) => (
+          {(['ALL', 'REPO', 'ERROR_INTEL', 'LEARN', 'CODE', 'DEBUG', 'ANALYZE', 'TEST', 'PRACTICE'] as const).map((cat) => (
             <button
               key={cat}
               onClick={() => setSelectedCategory(cat)}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-mono font-semibold transition cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-mono font-semibold transition cursor-pointer shrink-0 ${
                 selectedCategory === cat
                   ? 'bg-teal-500 text-[#08110F] shadow-sm'
                   : 'bg-pulse-surface text-pulse-secondary hover:text-pulse-primary hover:bg-pulse-elevated border border-pulse-subtle'
               }`}
             >
-              {cat === 'REPO' ? 'REPO INTELLIGENCE' : cat}
+              {cat === 'REPO'
+                ? 'REPO INTELLIGENCE'
+                : cat === 'ERROR_INTEL'
+                ? 'ERROR & STACK INTELLIGENCE'
+                : cat}
             </button>
           ))}
         </div>
@@ -592,6 +668,22 @@ export const PulseAIView: React.FC = () => {
         {selectedCategory === 'REPO' && (
           <div className="animate-fadeIn">
             <AskCodebaseWidget onJumpToCode={() => setActiveTab('analyzer')} />
+          </div>
+        )}
+
+        {/* Dedicated Error Intelligence & Stack Trace Engine if ERROR_INTEL is selected */}
+        {selectedCategory === 'ERROR_INTEL' && (
+          <div className="animate-fadeIn">
+            <ErrorIntelligenceWidget
+              onJumpToLearn={(lang, conceptId) => {
+                if (setLanguage) setLanguage(lang);
+                setActiveTab('learn');
+              }}
+              onOpenKnowledgeModal={(lang) => {
+                setInspectingLang(lang);
+                setIsKnowledgeModalOpen(true);
+              }}
+            />
           </div>
         )}
 
@@ -812,6 +904,22 @@ export const PulseAIView: React.FC = () => {
           )}
         </form>
       </div>
+
+      {/* 15-Language Knowledge Inspector Modal */}
+      <LanguageKnowledgeInspectorModal
+        isOpen={isKnowledgeModalOpen}
+        onClose={() => setIsKnowledgeModalOpen(false)}
+        initialLanguage={inspectingLang}
+        onSelectLanguage={(lang) => {
+          setInspectingLang(lang);
+          if (setLanguage) setLanguage(lang);
+        }}
+        onNavigateToLearn={(lang, conceptId) => {
+          if (setLanguage) setLanguage(lang);
+          setActiveTab('learn');
+        }}
+      />
     </div>
   );
 };
+

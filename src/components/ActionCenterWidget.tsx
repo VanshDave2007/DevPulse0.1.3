@@ -55,6 +55,7 @@ export const ActionCenterWidget: React.FC = () => {
     personalizationProfile,
     setActiveTab,
     sendAiRequest,
+    openFixModalForFinding,
   } = useApp();
 
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
@@ -166,11 +167,7 @@ export const ActionCenterWidget: React.FC = () => {
   };
 
   const handleFixWithAi = (finding: ActionFinding) => {
-    sendAiRequest(
-      'problems',
-      `Explain and fix the issue "${finding.title}" at line ${finding.line} in ${finding.file}: ${finding.message}\n\nRecommended remediation: ${finding.suggestedFix || 'Refactor to follow clean code standards'}`
-    );
-    setActiveTab('pulse-ai');
+    openFixModalForFinding(finding);
   };
 
   const priorityBadgeStyle: Record<FindingPriority, string> = {
