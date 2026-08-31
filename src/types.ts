@@ -1404,15 +1404,21 @@ export interface RemediationAuditRecord {
   plan: FixPlan;
   patch: UnifiedPatch;
   validation: PatchValidationResult;
-  testResults: TestVerificationResult;
-  securityResults: SecurityVerificationResult;
-  regressionResults: RegressionCheckResult;
+  testResults: TestVerificationResult | null;
+  securityResults: SecurityVerificationResult | null;
+  regressionResults: RegressionCheckResult | null;
   verificationState: VerificationState;
-  finalStatus: 'APPLIED' | 'VERIFIED' | 'REVERTED' | 'REJECTED' | 'FAILED';
+  finalStatus: 'APPLIED' | 'VERIFIED' | 'REVERTED' | 'REJECTED' | 'FAILED' | 'PLAN_ONLY';
   userFeedback?: {
     isUseful: boolean;
     feedbackText?: string;
     submittedAt: number;
+  };
+  developerFeedback?: {
+    useful?: boolean;
+    rejectionReason?: string;
+    comment?: string;
+    timestamp?: number;
   };
   checkpointSnapshot?: {
     fileName: string;
@@ -1837,6 +1843,7 @@ export interface ToastNotification {
   id: string;
   title: string;
   description?: string;
+  message?: string;
   type?: ToastType;
   duration?: number;
 }
